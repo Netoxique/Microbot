@@ -297,7 +297,7 @@ public class RcScript extends Script {
             }
 
             if (config.runeType() == RuneType.WRATH && config.usePoh()) {
-                if (Rs2Player.getRunEnergy() > 45) {
+                if (Rs2Player.getRunEnergy() > 10) {
                     handleWrathWalking();
                 }
             } else {
@@ -330,7 +330,7 @@ public class RcScript extends Script {
     }
 
     private void handleFeroxRunEnergy() {
-        if (Rs2Player.getRunEnergy() < 45) {
+        if (Rs2Player.getRunEnergy() < 10) {
             Microbot.log("We are thirsty...let us Drink");
             if (plugin.getMyWorldPoint().distanceTo(feroxPoolWp) > 5) {
                 Microbot.log("Walking to Ferox pool");
@@ -425,7 +425,7 @@ public class RcScript extends Script {
                             }
                         }
                     }
-                    if (Rs2Player.getRunEnergy() < 45) {
+                    if (Rs2Player.getRunEnergy() < 10) {
                         sleepGaussian(700, 200);
                         Microbot.log("We are thirsty..let us Drink");
                         List<Integer> poolObjectIds = Arrays.asList(29241, 29240, 29239, 29238, 29237);
@@ -435,7 +435,7 @@ public class RcScript extends Script {
                                     sleepUntil(() -> !Rs2Player.isInteracting() && Rs2Player.getRunEnergy() > 90);
                                 });
                     }
-                    if (Rs2Player.getRunEnergy() > 45) {
+                    if (Rs2Player.getRunEnergy() > 10) {
                         if (config.runeType() == RuneType.BLOOD) {
                             sleepGaussian(700, 200);
                             Microbot.log("Looking for fairies");
@@ -498,7 +498,7 @@ public class RcScript extends Script {
 
         if (config.runeType() == RuneType.WRATH && Rs2Player.getRunEnergy() > 90) {
             state = State.WALKING_TO;
-        } else if (config.runeType() == RuneType.WRATH && Rs2Player.getRunEnergy() < 45
+        } else if (config.runeType() == RuneType.WRATH && Rs2Player.getRunEnergy() < 10
                 || Rs2Player.getHealthPercentage() < 50) {
             Teleports homeTeleports = Teleports.CONSTRUCTION_CAPE;
             GameObject pohPortal = plugin.getPohPortal();
@@ -523,7 +523,7 @@ public class RcScript extends Script {
                 }
             }
 
-            if (Rs2Player.getRunEnergy() < 45) {
+            if (Rs2Player.getRunEnergy() < 10) {
                 sleepGaussian(700, 200);
                 Microbot.log("We are thirsty..let us Drink");
                 List<Integer> poolObjectIds = Arrays.asList(29241, 29240, 29239, 29238, 29237);
@@ -534,7 +534,7 @@ public class RcScript extends Script {
                         });
             }
 
-            if (Rs2Player.getRunEnergy() > 45) {
+            if (Rs2Player.getRunEnergy() > 10) {
                 if (config.runeType() == RuneType.BLOOD) {
                     sleepGaussian(700, 200);
                     handlePohFairyRing();
@@ -570,7 +570,7 @@ public class RcScript extends Script {
                 }
             }
 
-            if (Rs2Player.getRunEnergy() < 45) {
+            if (Rs2Player.getRunEnergy() < 10) {
                 sleepGaussian(700, 200);
                 Microbot.log("We are thirsty..let us Drink");
                 List<Integer> poolObjectIds = Arrays.asList(29241, 29240, 29239, 29238, 29237);
@@ -581,7 +581,7 @@ public class RcScript extends Script {
                         });
             }
 
-            if (Rs2Player.getRunEnergy() > 45) {
+            if (Rs2Player.getRunEnergy() > 10) {
                 if (config.runeType() == RuneType.BLOOD) {
                     sleepGaussian(700, 200);
                     handlePohFairyRing();
