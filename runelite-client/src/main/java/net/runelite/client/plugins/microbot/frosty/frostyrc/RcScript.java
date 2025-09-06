@@ -480,16 +480,22 @@ public class RcScript extends Script {
         if (Rs2Inventory.contains(mythCape)) {
             Microbot.log("Interacting with myth cape");
             Rs2Inventory.interact(mythCape, "Teleport");
-            sleepUntil(() -> plugin.getMyWorldPoint().getRegionID() == mythicStatueRegion);
-            sleepGaussian(600, 200);
 
-            GameObject statue = Rs2GameObject.getGameObject(31626); // Myth Statue
+            sleepUntil(() -> Rs2GameObject.getGameObject(31626) != null, 5000); // Myth Statue
+            GameObject statue = Rs2GameObject.getGameObject(31626);
 			if (statue != null && !Rs2Player.isAnimating()) {
 				Rs2GameObject.interact(statue, "Teleport");
 			}
 
-            GameObject cave = Rs2GameObject.getGameObject(31807); // Myth Statue
+            sleepUntil(() -> Rs2GameObject.getGameObject(31807) != null, 5000); // Cave
+            GameObject cave = Rs2GameObject.getGameObject(31807);
             if (cave != null && !Rs2Player.isAnimating()) {
+                Rs2GameObject.interact(cave, "Enter");
+            }
+
+            sleepUntil(() -> Rs2GameObject.getGameObject("Mysterious Ruins") != null, 20000);
+            GameObject ruins = Rs2GameObject.getGameObject("Mysterious Ruins");
+            if (ruins != null && !Rs2Player.isAnimating()) {
                 Rs2GameObject.interact(cave, "Enter");
             }
 
