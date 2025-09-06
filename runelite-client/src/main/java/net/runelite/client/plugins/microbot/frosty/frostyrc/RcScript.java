@@ -493,8 +493,8 @@ public class RcScript extends Script {
                 Rs2GameObject.interact(cave, "Enter");
             }
 
-            sleepUntil(() -> Rs2GameObject.get("Mysterious Ruins") != null, 20000); // Wait for Ruins
-            GameObject ruins = Rs2GameObject.get("Mysterious Ruins");
+            sleepUntil(() -> Rs2GameObject.getGameObject(34824) != null, 20000); // Wait for Ruins
+            GameObject ruins = Rs2GameObject.getGameObject(34824);
             if (ruins != null && !Rs2Player.isAnimating()) {
                 Rs2GameObject.interact(ruins, "Enter");
             }
