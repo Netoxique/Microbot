@@ -738,7 +738,7 @@ public class RcScript extends Script {
         }
 
         if (config.runeType() == RuneType.WRATH) {
-            sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(31626) != null, 5000); // Wait for Wrath Rune
+            sleepUntilOnClientThread(() -> Rs2Inventory.hasItem(ItemID.WRATHRUNE));
             handleEmptyPouch();
         }
 
