@@ -93,7 +93,8 @@ public class RcScript extends Script {
         Rs2Antiban.antibanSetupTemplates.applyRunecraftingSetup();
         Rs2Antiban.setActivity(Activity.CRAFTING_BLOODS_TRUE_ALTAR);
         Rs2Camera.setZoom(200);
-        Rs2Camera.setPitch(369);
+        Rs2Camera.setPitch(245);
+        Rs2Camera.setYaw(1024);
         sleepGaussian(700, 200);
         state = State.BANKING;
         Microbot.log("Script has started");
@@ -482,25 +483,30 @@ public class RcScript extends Script {
             sleepUntil(() -> plugin.getMyWorldPoint().getRegionID() == mythicStatueRegion);
             sleepGaussian(600, 200);
 
-			GameObject statue = Rs2GameObject.get("Mythic Statue");
+            GameObject statue = Rs2GameObject.getGameObject(31626); // Myth Statue
 			if (statue != null && !Rs2Player.isAnimating()) {
 				Rs2GameObject.interact(statue, "Teleport");
 			}
 
-            if (plugin.getMyWorldPoint().getRegionID() == mythicStatueRegion) {
-                Microbot.log("Walking to Wrath ruins");
-                Rs2Walker.walkTo(outsideWrathRuins);
-                sleepUntil(() -> plugin.getMyWorldPoint().getRegionID() == mythicStatueRegion);
-                Microbot.log("Current position " + plugin.getMyWorldPoint());
+            GameObject cave = Rs2GameObject.getGameObject(31807); // Myth Statue
+            if (cave != null && !Rs2Player.isAnimating()) {
+                Rs2GameObject.interact(cave, "Enter");
+            }
 
-                if (plugin.getMyWorldPoint() == outsideWrathRuins) {
-                    Rs2GameObject.interact(wrathRuins, "Enter");
-                    sleepUntil(() -> plugin.getMyWorldPoint().getRegionID() == wrathAltarRegion);
-                }
-            }
-            if (plugin.getMyWorldPoint().distanceTo(wrathRuinsLoc) < 9) {
-                state = State.CRAFTING;
-            }
+//            if (plugin.getMyWorldPoint().getRegionID() == mythicStatueRegion) {
+//                Microbot.log("Walking to Wrath ruins");
+//                Rs2Walker.walkTo(outsideWrathRuins);
+//                sleepUntil(() -> plugin.getMyWorldPoint().getRegionID() == mythicStatueRegion);
+//                Microbot.log("Current position " + plugin.getMyWorldPoint());
+//
+//                if (plugin.getMyWorldPoint() == outsideWrathRuins) {
+//                    Rs2GameObject.interact(wrathRuins, "Enter");
+//                    sleepUntil(() -> plugin.getMyWorldPoint().getRegionID() == wrathAltarRegion);
+//                }
+//            }
+//            if (plugin.getMyWorldPoint().distanceTo(wrathRuinsLoc) < 9) {
+//                state = State.CRAFTING;
+//            }
 
         }
     }
