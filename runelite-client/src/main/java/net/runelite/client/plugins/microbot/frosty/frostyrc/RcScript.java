@@ -92,8 +92,8 @@ public class RcScript extends Script {
         Rs2Antiban.resetAntibanSettings();
         Rs2Antiban.antibanSetupTemplates.applyRunecraftingSetup();
         Rs2Antiban.setActivity(Activity.CRAFTING_BLOODS_TRUE_ALTAR);
-        Rs2Camera.setZoom(200);
-        Rs2Camera.setPitch(245);
+        Rs2Camera.setZoom(100);
+        Rs2Camera.setPitch(305);
         Rs2Camera.setYaw(1024);
         sleepGaussian(700, 200);
         state = State.BANKING;
@@ -478,42 +478,34 @@ public class RcScript extends Script {
 		if (Rs2Bank.isOpen()) { Rs2Bank.closeBank(); }
 
         if (Rs2Inventory.contains(mythCape)) {
-            Microbot.log("Interacting with myth cape");
+
             Rs2Inventory.interact(mythCape, "Teleport");
 
-            sleepUntil(() -> Rs2GameObject.getGameObject(31626) != null, 5000); // Wait for Myth Statue
+            sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(31626) != null, 5000); // Wait for Myth Statue
             GameObject statue = Rs2GameObject.getGameObject(31626);
 			if (statue != null && !Rs2Player.isAnimating()) {
 				Rs2GameObject.interact(statue, "Teleport");
 			}
 
-            sleepUntil(() -> Rs2GameObject.getGameObject(31807) != null, 5000); // Wait for Cave
+            sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(31807) != null, 5000); // Wait for Cave
             GameObject cave = Rs2GameObject.getGameObject(31807);
             if (cave != null && !Rs2Player.isAnimating()) {
                 Rs2GameObject.interact(cave, "Enter");
             }
 
-            sleepUntil(() -> Rs2GameObject.getGameObject(34824) != null, 20000); // Wait for Ruins
-            GameObject ruins = Rs2GameObject.getGameObject(34824);
+            sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(wrathRuins) != null, 20000); // Wait for Ruins
+            GameObject ruins = Rs2GameObject.getGameObject(wrathRuins);
             if (ruins != null && !Rs2Player.isAnimating()) {
                 Rs2GameObject.interact(ruins, "Enter");
             }
 
-//            if (plugin.getMyWorldPoint().getRegionID() == mythicStatueRegion) {
-//                Microbot.log("Walking to Wrath ruins");
-//                Rs2Walker.walkTo(outsideWrathRuins);
-//                sleepUntil(() -> plugin.getMyWorldPoint().getRegionID() == mythicStatueRegion);
-//                Microbot.log("Current position " + plugin.getMyWorldPoint());
-//
-//                if (plugin.getMyWorldPoint() == outsideWrathRuins) {
-//                    Rs2GameObject.interact(wrathRuins, "Enter");
-//                    sleepUntil(() -> plugin.getMyWorldPoint().getRegionID() == wrathAltarRegion);
-//                }
+            sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(wrathAltar) != null, 5000); // Wait for Altar
+            Microbot.log("WRATH ALTAR FOUND");
+//            GameObject altar = Rs2GameObject.getGameObject(wrathAltar);
+//            if (altar != null && !Rs2Player.isAnimating()) {
+//                Rs2GameObject.interact(altar, "Craft-rune");
 //            }
-//            if (plugin.getMyWorldPoint().distanceTo(wrathRuinsLoc) < 9) {
-//                state = State.CRAFTING;
-//            }
-
+            state = State.CRAFTING;
         }
     }
 
@@ -741,11 +733,6 @@ public class RcScript extends Script {
         }
 
         if (config.runeType() == RuneType.WRATH) {
-            Microbot.log("Entering wrath ruins");
-            Rs2GameObject.interact(wrathRuins, "Enter");
-            sleepUntil(() -> plugin.getMyWorldPoint().getRegionID() == wrathAltarRegion);
-            sleepGaussian(1100, 200);
-            Microbot.log("Crafting runes");
             handleEmptyPouch();
         }
 
