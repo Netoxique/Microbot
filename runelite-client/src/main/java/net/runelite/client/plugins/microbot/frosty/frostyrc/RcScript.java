@@ -472,6 +472,7 @@ public class RcScript extends Script {
 
     private void handleWrathWalking() {
         if (plugin.isBreakHandlerEnabled()) {
+
             BreakHandlerScript.setLockState(true);
         }
 
@@ -482,29 +483,33 @@ public class RcScript extends Script {
             Rs2Inventory.interact(mythCape, "Teleport");
 
             sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(31626) != null, 5000); // Wait for Myth Statue
+            sleepGaussian(600, 200);
             GameObject statue = Rs2GameObject.getGameObject(31626);
 			if (statue != null && !Rs2Player.isAnimating()) {
 				Rs2GameObject.interact(statue, "Teleport");
 			}
 
             sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(31807) != null, 5000); // Wait for Cave
+            sleepGaussian(600, 200);
             GameObject cave = Rs2GameObject.getGameObject(31807);
             if (cave != null && !Rs2Player.isAnimating()) {
                 Rs2GameObject.interact(cave, "Enter");
             }
 
             sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(wrathRuins) != null, 20000); // Wait for Ruins
+            sleepGaussian(600, 200);
             GameObject ruins = Rs2GameObject.getGameObject(wrathRuins);
             if (ruins != null && !Rs2Player.isAnimating()) {
                 Rs2GameObject.interact(ruins, "Enter");
             }
 
             sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(wrathAltar) != null, 5000); // Wait for Altar
-            Microbot.log("WRATH ALTAR FOUND");
-//            GameObject altar = Rs2GameObject.getGameObject(wrathAltar);
-//            if (altar != null && !Rs2Player.isAnimating()) {
-//                Rs2GameObject.interact(altar, "Craft-rune");
-//            }
+            sleepGaussian(600, 200);
+            GameObject altar = Rs2GameObject.getGameObject(wrathAltar);
+            if (altar != null && !Rs2Player.isAnimating()) {
+                Rs2GameObject.interact(altar, "Craft-rune");
+            }
+
             state = State.CRAFTING;
         }
     }
@@ -733,6 +738,7 @@ public class RcScript extends Script {
         }
 
         if (config.runeType() == RuneType.WRATH) {
+            sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(31626) != null, 5000); // Wait for Wrath Rune
             handleEmptyPouch();
         }
 
