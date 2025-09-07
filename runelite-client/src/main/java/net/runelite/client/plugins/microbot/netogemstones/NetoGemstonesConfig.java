@@ -56,6 +56,6 @@ public interface NetoGemstonesConfig extends Config {
             section = generalSettings
     )
     default WorldRegion worldRegion() {
-        return WorldRegion.ANY;
+        return WorldRegion.UNITED_STATES_OF_AMERICA;
     }
 }

@@ -14,6 +14,7 @@ import net.runelite.client.plugins.microbot.util.gameobject.Rs2GameObject;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
 import net.runelite.client.plugins.microbot.util.widget.Rs2Widget;
+import net.runelite.http.api.worlds.WorldRegion;
 
 import java.util.concurrent.TimeUnit;
 
@@ -68,7 +69,7 @@ public class NetoGemstonesScript extends Script {
             if (Rs2GameObject.interact(gemRock, "Mine")) {
                 Rs2Player.waitForXpDrop(Skill.MINING);
                 if (config.hopOnPlayerDetect()) {
-                    Rs2Player.hopIfPlayerDetected(1, 0, config.distanceToHop(), config.worldRegion() == net.runelite.http.api.worlds.WorldRegion.ANY ? null : config.worldRegion());
+                    Rs2Player.hopIfPlayerDetected(1, 0, config.distanceToHop(), config.worldRegion() == WorldRegion.UNITED_STATES_OF_AMERICA ? null : config.worldRegion());
                 }
             }
         }
