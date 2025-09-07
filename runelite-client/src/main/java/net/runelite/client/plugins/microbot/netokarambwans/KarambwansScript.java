@@ -27,6 +27,7 @@ public class KarambwansScript extends Script {
     public static double version = 1.2;
     private final WorldPoint fishingPoint = new WorldPoint(2899, 3118, 0);
     private final WorldPoint chasmBank = new WorldPoint(1481, 3649, 0);
+    private final WorldPoint baitPoint = new WorldPoint(2804, 3006, 0);
     // Using a more generic bank location that Microbot can find easily.
     // This can be any bank, Rs2Bank.walkToBank() will find the nearest one.
 
@@ -131,9 +132,9 @@ public class KarambwansScript extends Script {
         Rs2Bank.openBank();
         sleepUntil(Rs2Bank::isOpen);
         Rs2Bank.depositAll(ItemID.TBWT_RAW_KARAMBWAN);
+        sleepGaussian(600,200);
         Rs2Bank.withdrawItem(ItemID.NET);
-        Rs2Walker.walkTo(new WorldPoint(2804, 3006, 0)); // Walk to bait spot
-        Rs2Player.waitForWalking();
+        Rs2Walker.walkTo(baitPoint);
     }
 
     private void baitingLoop(KarambwansConfig config) {
