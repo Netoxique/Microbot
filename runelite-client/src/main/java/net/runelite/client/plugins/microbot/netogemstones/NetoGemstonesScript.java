@@ -52,11 +52,12 @@ public class NetoGemstonesScript extends Script {
                            if (Rs2GameObject.interact(depositChest, "Deposit")) {
                                if (sleepUntil(() -> Rs2Widget.hasWidget("Deposit Box"))) {
                                    if (Rs2Inventory.hasItem("Open gem bag")) {
-                                        Rs2Inventory.interact("Open gem bag", "empty to bank");
-                                        sleep(600, 1200);
+                                        Rs2Bank.emptyGemBag();
+                                        sleepGaussian(600, 200);
                                    }
-                                   Rs2Widget.clickWidget("Deposit inventory");
-                                   sleep(600, 1200);
+//                                   Rs2Widget.clickWidget("Deposit inventory");
+                                   Rs2Bank.depositAllExcept("Open gem bag", "Dragon pickaxe");
+                                   sleepGaussian(900, 300);
                                    Rs2Bank.closeBank();
                                }
                            }
