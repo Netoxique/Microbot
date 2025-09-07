@@ -34,7 +34,7 @@ public class NetoGemstonesScript extends Script {
                             return;
                         }
 
-                        GameObject gemRock = Rs2GameObject.findObject(GEM_ROCK);
+                        GameObject gemRock = Rs2GameObject.getGameObject(GEM_ROCK);
                         if (gemRock != null) {
                             if (Rs2GameObject.interact(gemRock, "Mine")) {
                                 Rs2Player.waitForAnimation();
@@ -47,7 +47,7 @@ public class NetoGemstonesScript extends Script {
                             return;
                         }
 
-                        GameObject depositChest = Rs2GameObject.findObject(BANK_DEPOSIT_CHEST);
+                        GameObject depositChest = Rs2GameObject.getGameObject(BANK_DEPOSIT_CHEST);
                         if (depositChest != null) {
                            if (Rs2GameObject.interact(depositChest, "Deposit")) {
                                if (sleepUntil(() -> Rs2Widget.hasWidget("Deposit Box"))) {
