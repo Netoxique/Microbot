@@ -46,6 +46,7 @@ import net.runelite.client.plugins.microbot.util.security.Login;
 import net.runelite.client.plugins.microbot.util.tabs.Rs2Tab;
 import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
 import net.runelite.client.plugins.microbot.util.widget.Rs2Widget;
+import net.runelite.http.api.worlds.WorldRegion;
 import net.runelite.http.api.worlds.WorldResult;
 import net.runelite.http.api.worlds.WorldType;
 
@@ -567,6 +568,10 @@ public class Rs2Player {
      * @return {@code true} if the player detected and successfully hopped worlds, {@code false} otherwise.
      */
     public static boolean hopIfPlayerDetected(int amountOfPlayers, int time, int distance) {
+        return hopIfPlayerDetected(amountOfPlayers, time, distance, null);
+    }
+
+    public static boolean hopIfPlayerDetected(int amountOfPlayers, int time, int distance, WorldRegion region) {
         List<Rs2PlayerModel> players = getPlayers(player -> true).collect(Collectors.toList());
         long currentTime = System.currentTimeMillis();
 
@@ -589,13 +594,13 @@ public class Rs2Player {
             for (Rs2PlayerModel player : players) {
                 long detectionTime = playerDetectionTimes.getOrDefault(player, 0L);
                 if (currentTime - detectionTime >= time) {
-                    int randomWorld = Login.getRandomWorld(isMember());
+                    int randomWorld = Login.getRandomWorld(isMember(), region);
                     Microbot.hopToWorld(randomWorld);
                     return true;
                 }
             }
         } else if (players.size() >= amountOfPlayers) {
-            int randomWorld = Login.getRandomWorld(isMember());
+            int randomWorld = Login.getRandomWorld(isMember(), region);
             Microbot.hopToWorld(randomWorld);
             return true;
         }
