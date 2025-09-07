@@ -9,7 +9,8 @@ public class KarambwanInfo {
         WALKING_TO_BANK,
         BANKING,
         WALKING_TO_FISH,
-        GETTING_BAIT
+        GETTING_BAIT,
+        FISHING_BAIT
     }
 
 }
