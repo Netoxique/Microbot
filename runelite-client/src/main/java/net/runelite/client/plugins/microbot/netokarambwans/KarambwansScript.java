@@ -11,6 +11,7 @@ import net.runelite.client.plugins.microbot.globval.WidgetIndices;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2Antiban;
 import net.runelite.client.plugins.microbot.util.antiban.enums.Activity;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
+import net.runelite.client.plugins.microbot.util.camera.Rs2Camera;
 import net.runelite.client.plugins.microbot.util.gameobject.Rs2GameObject;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.math.Rs2Random;
@@ -27,10 +28,15 @@ import static net.runelite.client.plugins.microbot.netokarambwans.KarambwanInfo.
 public class KarambwansScript extends Script {
     public static double version = 1.1;
     private final WorldPoint fishingPoint = new WorldPoint(2900, 3111, 0);
-    private final WorldPoint bankPoint = new WorldPoint(1483, 3648, 0);
+    private final WorldPoint bankPoint = new WorldPoint(1480, 3648, 0);
 
     public boolean run(KarambwansConfig config) {
         Microbot.enableAutoRunOn = false;
+
+        Rs2Camera.setZoom(230);
+        Rs2Camera.setPitch(512);
+        sleepGaussian(600, 200);
+
         Rs2Antiban.setActivity(Activity.CATCHING_RAW_KARAMBWAN);
         mainScheduledFuture = scheduledExecutorService.scheduleWithFixedDelay(() -> {
             try {
@@ -81,7 +87,7 @@ public class KarambwansScript extends Script {
     private void fishingLoop() {
         while (!Rs2Inventory.isFull() && super.isRunning()) {
             if (!Rs2Player.isInteracting() || !Rs2Player.isAnimating()) {
-                if (Rs2Inventory.contains(ItemID.RAW_KARAMBWANJI)) {
+                if (Rs2Inventory.contains(ItemID.TBWT_RAW_KARAMBWANJI)) {
                     interactWithFishingSpot();
                     Rs2Player.waitForAnimation();
                     sleep(2000, 4000);
@@ -101,47 +107,51 @@ public class KarambwansScript extends Script {
 
     private void useBank() {
         Rs2Bank.depositAll(ItemID.TBWT_RAW_KARAMBWAN);
-        Rs2Inventory.waitForInventoryChanges(2000);
+
+        Rs2Bank.depositAll(ItemID.NET);
+
         if (Rs2Inventory.contains("scroll") || Rs2Inventory.contains("Scroll")) {
             Rs2Bank.depositAll("scroll");
             Rs2Bank.depositAll("Scroll");
-            Rs2Inventory.waitForInventoryChanges(2000);
         }
         if (Rs2Inventory.contains(ItemID.FISH_BARREL_OPEN) || Rs2Inventory.contains(ItemID.FISH_BARREL_CLOSED)) {
             Rs2Bank.emptyFishBarrel();
-            Rs2Inventory.waitForInventoryChanges(2000);
         }
     }
 
     private void interactWithFishingSpot() {
-        Rs2Npc.interact(NpcID.FISHING_SPOT_3849, "Fish");
+        Rs2Npc.interact(NpcID._0_45_48_KARAMBWAN, "Fish");
     }
 
     private void getBait(KarambwansConfig config) {
-        //walk to bank
+
         Rs2Walker.walkTo(bankPoint);
-        sleepUntil(() -> Rs2Bank.isNearBank(10));
+
         Rs2Bank.openBank();
-        //withdraw net
-        Rs2Bank.withdrawItem(ItemID.SMALL_FISHING_NET);
-        sleep(600);
-        //walk to bait spot
-        Rs2Walker.walkTo(new WorldPoint(2804, 3006, 0));
-        //fish bait
-        while (Rs2Inventory.count(ItemID.RAW_KARAMBWANJI) < config.karambwanjiToFish()) {
+        sleepUntil(Rs2Bank::isOpen);
+
+        useBank();
+
+        Rs2Bank.withdrawItem(ItemID.NET);
+
+        Rs2Walker.walkTo(new WorldPoint(2804, 3006, 0)); //walk to bait spot
+
+        while (Rs2Inventory.count(ItemID.TBWT_RAW_KARAMBWANJI) < config.karambwanjiToFish()) {
             if (!Rs2Player.isInteracting() || !Rs2Player.isAnimating()) {
-                Rs2Npc.interact(NpcID.FISHING_SPOT_3849, "Net");
+                Rs2Npc.interact("Fishing Spot", "Net");
                 Rs2Player.waitForAnimation();
                 sleep(2000, 4000);
             }
         }
-        //walk to bank
+
+        Rs2Inventory.dropAll("Raw Shrimp");
+
         Rs2Walker.walkTo(bankPoint);
-        sleepUntil(() -> Rs2Bank.isNearBank(10));
+
         Rs2Bank.openBank();
-        //deposit net
-        Rs2Bank.depositItem(ItemID.SMALL_FISHING_NET);
-        sleep(600);
+        sleepUntil(Rs2Bank::isOpen);
+
+        useBank();
     }
 
     private void walkToFish() {
