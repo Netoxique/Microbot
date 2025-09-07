@@ -44,7 +44,7 @@ public class NetoGemstonesScript extends Script {
 
                 switch (state) {
                     case MINING:
-                        doMining();
+                        doMining(config);
                         break;
                     case BANKING:
                         doBanking();
@@ -58,7 +58,7 @@ public class NetoGemstonesScript extends Script {
         return true;
     }
 
-    public void doMining() {
+    public void doMining(NetoGemstonesConfig config) {
         if (Rs2Inventory.isFull()) {
             state = NetoGemstonesState.BANKING;
             return;
@@ -67,6 +67,9 @@ public class NetoGemstonesScript extends Script {
         if (gemRock != null) {
             if (Rs2GameObject.interact(gemRock, "Mine")) {
                 Rs2Player.waitForXpDrop(Skill.MINING);
+                if (config.hopOnPlayerDetect()) {
+                    Rs2Player.hopIfPlayerDetected(1, 0, config.distanceToHop(), config.worldRegion() == net.runelite.http.api.worlds.WorldRegion.ANY ? null : config.worldRegion());
+                }
             }
         }
     }
