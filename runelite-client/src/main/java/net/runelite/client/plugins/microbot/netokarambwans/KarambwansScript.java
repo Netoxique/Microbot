@@ -7,7 +7,6 @@ import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.gameval.NpcID;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
-import net.runelite.client.plugins.microbot.frosty.frostyrc.enums.State;
 import net.runelite.client.plugins.microbot.globval.WidgetIndices;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2Antiban;
 import net.runelite.client.plugins.microbot.util.antiban.enums.Activity;
@@ -81,7 +80,8 @@ public class KarambwansScript extends Script {
                     Rs2Player.waitForAnimation();
                     sleep(2000, 4000);
                 } else {
-                    state = State.CRAFTING;
+                    Microbot.showMessage("Raw karambwanji not detected. Shutting down");
+                    shutdown();
                     return;
                 }
             }
