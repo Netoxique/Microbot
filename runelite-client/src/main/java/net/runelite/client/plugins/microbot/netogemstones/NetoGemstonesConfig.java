@@ -22,6 +22,6 @@ public interface NetoGemstonesConfig extends Config {
             section = generalSettings
     )
     default String GUIDE() {
-        return "Start near a gem rock with a pickaxe in your inventory or equipped.";
+        return "Start near a gem rock with a pickaxe in your inventory or equipped. Gems bag and charged Amulet of Glory very recommended.";
     }
 }
