@@ -1,18 +1,16 @@
 package net.runelite.client.plugins.microbot.netokarambwans;
 
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.GameObject;
 import net.runelite.api.gameval.ItemID;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.gameval.NpcID;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
-import net.runelite.client.plugins.microbot.globval.WidgetIndices;
+import net.runelite.client.plugins.microbot.runecrafting.chillRunecraft.States;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2Antiban;
 import net.runelite.client.plugins.microbot.util.antiban.enums.Activity;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.camera.Rs2Camera;
-import net.runelite.client.plugins.microbot.util.gameobject.Rs2GameObject;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.math.Rs2Random;
 import net.runelite.client.plugins.microbot.util.npc.Rs2Npc;
@@ -26,15 +24,18 @@ import static net.runelite.client.plugins.microbot.netokarambwans.KarambwanInfo.
 
 @Slf4j
 public class KarambwansScript extends Script {
-    public static double version = 1.1;
-    private final WorldPoint fishingPoint = new WorldPoint(2900, 3111, 0);
-    private final WorldPoint bankPoint = new WorldPoint(1480, 3648, 0);
+    public static double version = 1.2;
+    private final WorldPoint fishingPoint = new WorldPoint(2899, 3118, 0);
+    private final WorldPoint chasmBank = new WorldPoint(1481, 3649, 0);
+    // Using a more generic bank location that Microbot can find easily.
+    // This can be any bank, Rs2Bank.walkToBank() will find the nearest one.
 
     public boolean run(KarambwansConfig config) {
-        Microbot.enableAutoRunOn = false;
+        Microbot.enableAutoRunOn = true;
 
-        Rs2Camera.setZoom(230);
         Rs2Camera.setPitch(512);
+        Rs2Camera.setZoom(230);
+        Rs2Camera.setYaw(0);
         sleepGaussian(600, 200);
 
         Rs2Antiban.setActivity(Activity.CATCHING_RAW_KARAMBWAN);
@@ -46,36 +47,31 @@ public class KarambwansScript extends Script {
                 switch (botStatus) {
                     case FISHING:
                         fishingLoop();
-                        if (botStatus == states.FISHING) {
-                            Rs2Antiban.takeMicroBreakByChance();
-                            botStatus = states.WALKING_TO_BANK;
-                            Rs2Player.waitForAnimation();
-                        }
                         break;
                     case WALKING_TO_BANK:
-                        doBank();
+                        walkToBank();
                         botStatus = states.BANKING;
-                        Rs2Random.waitEx(400, 200);
                         break;
                     case BANKING:
                         useBank();
                         botStatus = states.WALKING_TO_FISH;
-                        Rs2Random.waitEx(400, 200);
                         break;
                     case WALKING_TO_FISH:
                         walkToFish();
                         botStatus = states.FISHING;
-                        Rs2Random.waitEx(400, 200);
                         break;
                     case GETTING_BAIT:
-                        getBait(config);
-                        botStatus = states.WALKING_TO_FISH;
+                        setupBaitFishing();
+                        botStatus = states.FISHING_BAIT;
+                        break;
+                    case FISHING_BAIT:
+                        baitingLoop(config);
                         break;
                 }
             } catch (Exception ex) {
                 Microbot.logStackTrace(this.getClass().getSimpleName(), ex);
             }
-        }, 0, 1000, TimeUnit.MILLISECONDS);
+        }, 0, 600, TimeUnit.MILLISECONDS);
         return true;
     }
 
@@ -85,78 +81,81 @@ public class KarambwansScript extends Script {
     }
 
     private void fishingLoop() {
-        while (!Rs2Inventory.isFull() && super.isRunning()) {
-            if (!Rs2Player.isInteracting() || !Rs2Player.isAnimating()) {
-                if (Rs2Inventory.contains(ItemID.TBWT_RAW_KARAMBWANJI)) {
-                    interactWithFishingSpot();
-                    Rs2Player.waitForAnimation();
-                    sleep(2000, 4000);
-                } else {
-                    botStatus = states.GETTING_BAIT;
-                    return;
-                }
-            }
+        if (Rs2Inventory.isFull()) {
+            botStatus = states.WALKING_TO_BANK;
+            return;
+        }
+        if (!Rs2Inventory.contains(ItemID.TBWT_RAW_KARAMBWANJI)) {
+            botStatus = states.GETTING_BAIT;
+            return;
+        }
+        if (!Rs2Player.isInteracting() && !Rs2Player.isAnimating()) {
+            interactWithFishingSpot();
+            Rs2Player.waitForAnimation();
         }
     }
 
-    private void doBank() {
-        Rs2Walker.walkTo(bankPoint);
-        sleepUntil(() -> Rs2Bank.isNearBank(10));
-        Rs2Bank.openBank();
+    private void walkToBank() {
+        Rs2Walker.walkTo(chasmBank,3);
+//        if (Rs2Bank.walkToBank()) {
+//            sleepUntil(() -> Rs2Bank.isNearBank(10));
+//        }
     }
 
     private void useBank() {
+        Rs2Bank.openBank();
+        sleepUntil(Rs2Bank::isOpen);
+        sleepGaussian(600,200);
         Rs2Bank.depositAll(ItemID.TBWT_RAW_KARAMBWAN);
-
+        sleepGaussian(600,200);
         Rs2Bank.depositAll(ItemID.NET);
-
-        if (Rs2Inventory.contains("scroll") || Rs2Inventory.contains("Scroll")) {
-            Rs2Bank.depositAll("scroll");
-            Rs2Bank.depositAll("Scroll");
-        }
-        if (Rs2Inventory.contains(ItemID.FISH_BARREL_OPEN) || Rs2Inventory.contains(ItemID.FISH_BARREL_CLOSED)) {
+        sleepGaussian(600,200);
+        Rs2Bank.depositAll("scroll"); // Handles all tiers of clue scrolls
+        sleepGaussian(600,200);
+        if (Rs2Inventory.hasItem(ItemID.FISH_BARREL_OPEN) || Rs2Inventory.hasItem(ItemID.FISH_BARREL_CLOSED)) {
             Rs2Bank.emptyFishBarrel();
         }
+        Rs2Bank.closeBank();
     }
 
     private void interactWithFishingSpot() {
         Rs2Npc.interact(NpcID._0_45_48_KARAMBWAN, "Fish");
     }
 
-    private void getBait(KarambwansConfig config) {
-
-        Rs2Walker.walkTo(bankPoint);
-
+    private void setupBaitFishing() {
+        Rs2Walker.walkTo(chasmBank,3);
+//        if (!Rs2Bank.isNearBank(10)) {
+//            Rs2Bank.walkToBank();
+//            sleepUntil(() -> Rs2Bank.isNearBank(10));
+//        }
         Rs2Bank.openBank();
         sleepUntil(Rs2Bank::isOpen);
-
-        useBank();
-
+        Rs2Bank.depositAll(ItemID.TBWT_RAW_KARAMBWAN);
         Rs2Bank.withdrawItem(ItemID.NET);
+        Rs2Walker.walkTo(new WorldPoint(2804, 3006, 0)); // Walk to bait spot
+        Rs2Player.waitForWalking();
+    }
 
-        Rs2Walker.walkTo(new WorldPoint(2804, 3006, 0)); //walk to bait spot
-
-        while (Rs2Inventory.count(ItemID.TBWT_RAW_KARAMBWANJI) < config.karambwanjiToFish()) {
-            if (!Rs2Player.isInteracting() || !Rs2Player.isAnimating()) {
-                Rs2Npc.interact("Fishing Spot", "Net");
-                Rs2Player.waitForAnimation();
-                sleep(2000, 4000);
-            }
+    private void baitingLoop(KarambwansConfig config) {
+        if (Rs2Inventory.itemQuantity(ItemID.TBWT_RAW_KARAMBWANJI) >= config.karambwanjiToFish()) {
+            Rs2Inventory.dropAll("Raw shrimps");
+            botStatus = states.WALKING_TO_FISH;
+            return;
         }
 
-        Rs2Inventory.dropAll("Raw Shrimp");
+        if (Rs2Inventory.isFull()) {
+            Rs2Inventory.dropAll("Raw shrimps");
+        }
 
-        Rs2Walker.walkTo(bankPoint);
-
-        Rs2Bank.openBank();
-        sleepUntil(Rs2Bank::isOpen);
-
-        useBank();
+        if (!Rs2Player.isInteracting() && !Rs2Player.isAnimating()) {
+            Rs2Npc.interact("Fishing spot", "Net"); // Generic name interaction is fine here
+            Rs2Player.waitForAnimation();
+            sleepGaussian(1500,1000);
+        }
     }
 
     private void walkToFish() {
-        Rs2Walker.walkTo(fishingPoint, 3);
+        Rs2Walker.walkTo(fishingPoint, 10);
         Rs2Player.waitForWalking();
     }
 }
-
