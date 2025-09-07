@@ -40,9 +40,11 @@ public class KarambwansScript extends Script {
                 switch (botStatus) {
                     case FISHING:
                         fishingLoop();
-                        Rs2Antiban.takeMicroBreakByChance();
-                        botStatus = states.WALKING_TO_BANK;
-                        Rs2Player.waitForAnimation();
+                        if (botStatus == states.FISHING) {
+                            Rs2Antiban.takeMicroBreakByChance();
+                            botStatus = states.WALKING_TO_BANK;
+                            Rs2Player.waitForAnimation();
+                        }
                         break;
                     case WALKING_TO_BANK:
                         doBank();
@@ -58,6 +60,10 @@ public class KarambwansScript extends Script {
                         walkToFish();
                         botStatus = states.FISHING;
                         Rs2Random.waitEx(400, 200);
+                        break;
+                    case GETTING_BAIT:
+                        getBait(config);
+                        botStatus = states.WALKING_TO_FISH;
                         break;
                 }
             } catch (Exception ex) {
@@ -75,13 +81,12 @@ public class KarambwansScript extends Script {
     private void fishingLoop() {
         while (!Rs2Inventory.isFull() && super.isRunning()) {
             if (!Rs2Player.isInteracting() || !Rs2Player.isAnimating()) {
-                if (Rs2Inventory.contains(ItemID.TBWT_RAW_KARAMBWANJI)) {
+                if (Rs2Inventory.contains(ItemID.RAW_KARAMBWANJI)) {
                     interactWithFishingSpot();
                     Rs2Player.waitForAnimation();
                     sleep(2000, 4000);
                 } else {
-                    Microbot.showMessage("Raw karambwanji not detected. Shutting down");
-                    shutdown();
+                    botStatus = states.GETTING_BAIT;
                     return;
                 }
             }
@@ -109,11 +114,34 @@ public class KarambwansScript extends Script {
     }
 
     private void interactWithFishingSpot() {
-        Rs2Npc.interact(NpcID._0_45_48_KARAMBWAN, "Fish");
+        Rs2Npc.interact(NpcID.FISHING_SPOT_3849, "Fish");
     }
 
-    private void refillBait() {
-
+    private void getBait(KarambwansConfig config) {
+        //walk to bank
+        Rs2Walker.walkTo(bankPoint);
+        sleepUntil(() -> Rs2Bank.isNearBank(10));
+        Rs2Bank.openBank();
+        //withdraw net
+        Rs2Bank.withdrawItem(ItemID.SMALL_FISHING_NET);
+        sleep(600);
+        //walk to bait spot
+        Rs2Walker.walkTo(new WorldPoint(2804, 3006, 0));
+        //fish bait
+        while (Rs2Inventory.count(ItemID.RAW_KARAMBWANJI) < config.karambwanjiToFish()) {
+            if (!Rs2Player.isInteracting() || !Rs2Player.isAnimating()) {
+                Rs2Npc.interact(NpcID.FISHING_SPOT_3849, "Net");
+                Rs2Player.waitForAnimation();
+                sleep(2000, 4000);
+            }
+        }
+        //walk to bank
+        Rs2Walker.walkTo(bankPoint);
+        sleepUntil(() -> Rs2Bank.isNearBank(10));
+        Rs2Bank.openBank();
+        //deposit net
+        Rs2Bank.depositItem(ItemID.SMALL_FISHING_NET);
+        sleep(600);
     }
 
     private void walkToFish() {
