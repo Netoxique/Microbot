@@ -10,17 +10,7 @@ import net.runelite.client.config.*;
                 "<li>Start the script next to the karambwan fishing spot</li>" +
                 "</ol>"
 )
-@ConfigInformation(
-        "This plugin fishes karambwans. <br>" +
-                "Requirements (obtainable with the script): <br>" +
-                "- Quest: Tai Bwo Wannai Trio <br>" +
-                "- Fishing level 65 <br>" +
-                "- Full graceful <br>" +
-                "- Fishing rod <br>" +
-                "- Rada's Blessing (any) <br>" +
-                "- Quest point cape (or construction cape with fairy ring in POH) <br>" +
-                "Check the ReadMe for a full guide."
-)
+
 public interface KarambwansConfig extends Config {
     @ConfigSection(
             name = "General",
@@ -39,6 +29,17 @@ public interface KarambwansConfig extends Config {
     )
     default int karambwanjiToFish() {
         return 3000;
+    }
+
+    @ConfigItem(
+            keyName = "startingState",
+            name = "Starting State",
+            description = "Choose the initial state of the bot.",
+            position = 1,
+            section = generalSection
+    )
+    default KarambwanInfo.states STARTING_STATE() {
+        return KarambwanInfo.states.FISHING;
     }
 }
 
