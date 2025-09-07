@@ -67,6 +67,7 @@ public class NetoGemstonesScript extends Script {
         if (gemRock != null) {
             if (Rs2GameObject.interact(gemRock, "Mine")) {
                 Rs2Player.waitForXpDrop(Skill.MINING);
+                Rs2Player.hopIfPlayerDetected(1, 0, 5);
             }
         }
     }
