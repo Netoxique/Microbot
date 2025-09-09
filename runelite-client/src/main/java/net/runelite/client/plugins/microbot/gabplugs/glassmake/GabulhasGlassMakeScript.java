@@ -21,7 +21,7 @@ import static net.runelite.client.plugins.microbot.gabplugs.glassmake.GabulhasGl
 
 @Slf4j
 public class GabulhasGlassMakeScript extends Script {
-    public static String version = "1.0.1";
+    public static String version = "1.0.2";
     @Inject
     private Notifier notifier;
 
@@ -29,11 +29,14 @@ public class GabulhasGlassMakeScript extends Script {
 
     private boolean oneTimeSpellBookCheck = false;
 
+    private boolean pickUpGlass;
+
     public boolean run(GabulhasGlassMakeConfig config) {
         oneTimeSpellBookCheck = false;
         Rs2Antiban.antibanSetupTemplates.applyUniversalAntibanSetup();
         Rs2AntibanSettings.actionCooldownChance = 0.2;
        currentItem= config.ITEM();
+       pickUpGlass = config.PICK_UP_GLASS();
         Microbot.enableAutoRunOn = false;
         mainScheduledFuture = scheduledExecutorService.scheduleWithFixedDelay(() -> {
             try {
@@ -154,10 +157,13 @@ public class GabulhasGlassMakeScript extends Script {
         }
         Rs2Bank.depositAll("Molten Glass");
         sleepUntil(() -> !Rs2Inventory.contains("Molten Glass"), 100);
-        if(Rs2GroundItem.exists("Molten Glass", 1)) {
+        if (!pickUpGlass) {
+            return;
+        }
+        if (Rs2GroundItem.exists("Molten Glass", 1)) {
             sleep(60, 100);
             Rs2Bank.closeBank();
-            while(Rs2GroundItem.exists("Molten Glass", 1)) {
+            while (Rs2GroundItem.exists("Molten Glass", 1)) {
                 Rs2GroundItem.loot("Molten Glass", 1);
                 sleep(60, 100);
             }
