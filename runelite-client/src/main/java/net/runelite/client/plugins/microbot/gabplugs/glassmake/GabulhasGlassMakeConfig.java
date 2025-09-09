@@ -27,6 +27,18 @@ public interface GabulhasGlassMakeConfig extends Config {
     {
         return GabulhasGlassMakeInfo.items.GiantSeaweed;
     }
+
+    @ConfigItem(
+            keyName = "pickUpGlass",
+            name = "Pick Up Glass",
+            description = "Pick up Molten Glass from the ground after casting",
+            position = 1,
+            section = generalSection
+    )
+    default boolean pickUpGlass()
+    {
+        return true;
+    }
 }
 
 
