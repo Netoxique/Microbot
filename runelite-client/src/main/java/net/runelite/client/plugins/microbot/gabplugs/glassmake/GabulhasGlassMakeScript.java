@@ -29,7 +29,10 @@ public class GabulhasGlassMakeScript extends Script {
 
     private boolean oneTimeSpellBookCheck = false;
 
+    private GabulhasGlassMakeConfig config;
+
     public boolean run(GabulhasGlassMakeConfig config) {
+        this.config = config;
         oneTimeSpellBookCheck = false;
         Rs2Antiban.antibanSetupTemplates.applyUniversalAntibanSetup();
         Rs2AntibanSettings.actionCooldownChance = 0.2;
@@ -148,6 +151,9 @@ public class GabulhasGlassMakeScript extends Script {
 
 
     private void picking() {
+        if (!config.pickUpGlass()) {
+            return;
+        }
         while (!Rs2Bank.isOpen()) {
             Rs2Bank.openBank();
             sleep(60, 200);
