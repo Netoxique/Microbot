@@ -23,6 +23,7 @@ public class NetoWildyEscapePlugin extends Plugin {
     @Override
     protected void startUp() throws AWTException {
         Microbot.pauseAllScripts.compareAndSet(true, false);
+//        script.precalculatePath();
         script.run();
     }
 
