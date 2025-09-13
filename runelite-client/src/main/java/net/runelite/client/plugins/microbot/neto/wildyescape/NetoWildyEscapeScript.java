@@ -41,8 +41,11 @@ public class NetoWildyEscapeScript extends Script {
         Rs2GameObject.interact(23552, "Open");
         // walk to safe location
         Rs2Walker.walkTo(new WorldPoint(2974, 3887, 0));
-        // logout
-        Rs2Player.logout();
+        // logout until successful
+        while (Microbot.isLoggedIn()) {
+            Rs2Player.logout();
+            sleepUntil(() -> !Microbot.isLoggedIn(), 300);
+        }
         // stop this script and plugin
         shutdown();
         Microbot.stopPlugin(NetoWildyEscapePlugin.class);
