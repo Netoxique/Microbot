@@ -7,11 +7,24 @@ import net.runelite.client.plugins.microbot.storm.plugins.PlayerMonitor.PlayerMo
 import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
 import net.runelite.client.plugins.microbot.util.gameobject.Rs2GameObject;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
+import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
+import net.runelite.api.coords.WorldArea;
 
 import java.util.concurrent.TimeUnit;
 
 public class NetoWildyEscapeScript extends Script {
+
+    WorldPoint safeArea = new WorldPoint(2997, 3877, 0);
+    WorldPoint gateArea = new WorldPoint(2998, 3931, 0);
+
+    WorldPoint southWestCorner = new WorldPoint(2991, 3936, 0);
+    WorldPoint northEastCorner = new WorldPoint(2995, 3946, 0);
+
+    int width  = (northEastCorner.getX() - southWestCorner.getX()) + 1; // 2995 - 2991 + 1 = 5
+    int height = (northEastCorner.getY() - southWestCorner.getY()) + 1; // 3946 - 3936 + 1 = 11
+
+    WorldArea rockArea = new WorldArea(southWestCorner, width, height);
 
     public boolean run() {
         mainScheduledFuture = scheduledExecutorService.scheduleWithFixedDelay(() -> {
@@ -34,13 +47,25 @@ public class NetoWildyEscapeScript extends Script {
         Microbot.stopPlugin("net.runelite.client.plugins.microbot.wildernessagility.WildernessAgilityPlugin");
         // start player monitor plugin
         Microbot.startPlugin(PlayerMonitorPlugin.class);
-        // walk to gate
-        Rs2Walker.walkTo(new WorldPoint(2998, 3931, 0));
+        // equip necklace if found in inventory
+        if (Rs2Inventory.hasItem("Phoenix necklace")) {
+            Rs2Inventory.wield("Phoenix necklace");
+        }
+        // Check if player is in rock area
+        boolean isInArea = rockArea.contains(Rs2Player.getWorldLocation());
+        if (isInArea) {
+            Rs2GameObject.interact(23640, "Climb"); // Climb rocks
+            sleep(1200);
+            sleepUntil(() -> !Rs2Player.isMoving(), 5000);
+        }
+        else {
+            Rs2Walker.walkTo(gateArea, 10); // walk to gate
+        }
         // open gate
-        sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(23552) != null); // Wait for Cave
+        sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(23552) != null); // Wait for Gate
         Rs2GameObject.interact(23552, "Open");
         // walk to safe location
-        Rs2Walker.walkTo(new WorldPoint(2974, 3887, 0));
+        Rs2Walker.walkTo(safeArea, 20);
         // logout until successful
         while (Microbot.isLoggedIn()) {
             Rs2Player.logout();
