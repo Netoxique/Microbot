@@ -9,6 +9,10 @@ import net.runelite.client.plugins.microbot.util.gameobject.Rs2GameObject;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
+import net.runelite.client.plugins.microbot.util.tabs.Rs2Tab;
+import net.runelite.client.plugins.microbot.util.widget.Rs2Widget;
+import net.runelite.client.plugins.microbot.globval.WidgetIndices;
+import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
 import net.runelite.api.coords.WorldArea;
 
 import java.util.List;
@@ -80,8 +84,14 @@ public class NetoWildyEscapeScript extends Script {
         // open gate
         sleepUntilOnClientThread(() -> Rs2GameObject.getGameObject(23552) != null); // Wait for Gate
         Rs2GameObject.interact(gate1, "Open");
-        // walk to safe location
         sleep(1200);
+        // leave via chat-channel
+        Rs2Tab.switchTo(InterfaceTab.CHAT);
+        Rs2Widget.sleepUntilHasWidgetText("Leave", WidgetIndices.ChatChannel.GROUP_INDEX,
+                WidgetIndices.ChatChannel.JOIN_LABEL, false, 3000);
+        Rs2Widget.clickWidget(WidgetIndices.ChatChannel.GROUP_INDEX,
+                WidgetIndices.ChatChannel.JOIN_DYNAMIC_CONTAINER);
+        // walk to safe location
         sleepUntil(() -> !Rs2Player.isMoving());
         Rs2Walker.walkTo(safeArea, 20);
         // logout until successful
