@@ -10,24 +10,25 @@ import net.runelite.api.gameval.ItemID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.plugins.itemcharges.ItemChargeConfig;
 import net.runelite.client.plugins.microbot.Microbot;
-import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
 import net.runelite.client.plugins.microbot.shortestpath.*;
+import net.runelite.client.plugins.microbot.shortestpath.pathfinder.policy.TransportRequirementPolicy;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
-import net.runelite.client.plugins.microbot.util.cache.Rs2PohCache;
-import net.runelite.client.plugins.microbot.util.cache.Rs2SpiritTreeCache;
 import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.magic.Rs2Magic;
 import net.runelite.client.plugins.microbot.util.magic.Rs2Spells;
 import net.runelite.client.plugins.microbot.util.magic.RuneFilter;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
+import net.runelite.client.plugins.microbot.util.leaguetransport.Rs2LeaguesTransport;
 import net.runelite.client.plugins.microbot.util.poh.PohTeleports;
-import net.runelite.client.plugins.microbot.util.tabs.Rs2Tab;
 import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
-
+import net.runelite.client.plugins.microbot.util.walker.WebWalkLog;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.IntFunction;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -37,21 +38,36 @@ import static net.runelite.client.plugins.microbot.shortestpath.TransportType.TE
 
 @Slf4j
 public class PathfinderConfig {
-    private static final WorldArea WILDERNESS_ABOVE_GROUND = new WorldArea(2944, 3523, 448, 448, 0);
-    private static final WorldArea WILDERNESS_ABOVE_GROUND_LEVEL_19 = new WorldArea(2944, 3672, 448, 448, 0);
-    private static final WorldArea WILDERNESS_ABOVE_GROUND_LEVEL_29 = new WorldArea(2944, 3752, 448, 448, 0);
-    private static final WorldArea WILDERNESS_UNDERGROUND = new WorldArea(2944, 9918, 320, 442, 0);
-    private static final WorldArea WILDERNESS_UNDERGROUND_LEVEL_19 = new WorldArea(2944, 10067, 320, 442, 0);
-    private static final WorldArea WILDERNESS_UNDERGROUND_LEVEL_29 = new WorldArea(2944, 10147, 320, 442, 0);
+    private static final WorldArea WILDERNESS_ABOVE_GROUND = new WorldArea(2944, 3525, 448, 448, 0);
+    private static final WorldArea WILDERNESS_ABOVE_GROUND_LEVEL_20 = new WorldArea(2944, 3680, 448, 448, 0);
+    private static final WorldArea WILDERNESS_ABOVE_GROUND_LEVEL_30 = new WorldArea(2944, 3760, 448, 448, 0);
+    private static final WorldArea WILDERNESS_UNDERGROUND = new WorldArea(2944, 9918, 518, 458, 0);
+    private static final WorldArea WILDERNESS_UNDERGROUND_LEVEL_20 = new WorldArea(2944, 10075, 518, 301, 0);
+    private static final WorldArea WILDERNESS_UNDERGROUND_LEVEL_30 = new WorldArea(2944, 10155, 518, 221, 0);
     private static final WorldArea FEROX_ENCLAVE_1 = new WorldArea(3123, 3622, 2, 10, 0);
     private static final WorldArea FEROX_ENCLAVE_2 = new WorldArea(3125, 3617, 16, 23, 0);
     private static final WorldArea FEROX_ENCLAVE_3 = new WorldArea(3138, 3636, 18, 10, 0);
-    private static final WorldArea FEROX_ENCLAVE_4 = new WorldArea(3141, 3625, 14, 11, 0);
-    private static final WorldArea FEROX_ENCLAVE_5 = new WorldArea(3141, 3619, 7, 6, 0);
-    private static final WorldArea NOT_WILDERNESS_1 = new WorldArea(2997, 3525, 34, 9, 0);
-    private static final WorldArea NOT_WILDERNESS_2 = new WorldArea(3005, 3534, 21, 10, 0);
-    private static final WorldArea NOT_WILDERNESS_3 = new WorldArea(3000, 3534, 5, 5, 0);
-    private static final WorldArea NOT_WILDERNESS_4 = new WorldArea(3031, 3525, 2, 2, 0);
+	private static final WorldArea FEROX_ENCLAVE_4 = new WorldArea(3141, 3625, 14, 11, 0);
+	private static final WorldArea FEROX_ENCLAVE_5 = new WorldArea(3141, 3619, 7, 6, 0);
+	private static final WorldArea NOT_WILDERNESS_1 = new WorldArea(2997, 3525, 34, 9, 0);
+	private static final WorldArea NOT_WILDERNESS_2 = new WorldArea(3005, 3534, 21, 10, 0);
+	private static final WorldArea NOT_WILDERNESS_3 = new WorldArea(3000, 3534, 5, 5, 0);
+	private static final WorldArea NOT_WILDERNESS_4 = new WorldArea(3031, 3525, 2, 2, 0);
+	private static final WorldPoint SPIRIT_TREE_ETCETERIA = new WorldPoint(2613, 3855, 0);
+	private static final WorldPoint SPIRIT_TREE_BRIMHAVEN = new WorldPoint(2800, 3203, 0);
+	private static final WorldPoint SPIRIT_TREE_PORT_SARIM = new WorldPoint(3058, 3257, 0);
+	private static final WorldPoint SPIRIT_TREE_HOSIDIUS = new WorldPoint(1693, 3540, 0);
+	private static final WorldPoint SPIRIT_TREE_FARMING_GUILD = new WorldPoint(1251, 3750, 0);
+	private static final Set<Long> STATIC_BLOCKED_EDGES_PACKED = loadStaticBlockedEdgesFromResources();
+
+	/** Order matches {@link #spiritTreeDestinationToggle(int)} — add destinations in both places only here + switch. */
+	private static final WorldPoint[] SPIRIT_TREE_DESTINATIONS_ORDERED = {
+			SPIRIT_TREE_ETCETERIA,
+			SPIRIT_TREE_BRIMHAVEN,
+			SPIRIT_TREE_PORT_SARIM,
+			SPIRIT_TREE_HOSIDIUS,
+			SPIRIT_TREE_FARMING_GUILD,
+	};
 
     private final SplitFlagMap mapData;
     private final ThreadLocal<CollisionMap> map;
@@ -69,6 +85,8 @@ public class PathfinderConfig {
     // Copy of transports with packed positions for the hotpath; lists are not copied and are the same reference in both maps
     @Getter
     private final PrimitiveIntHashMap<Set<Transport>> transportsPacked;
+    @Getter
+    private final Set<Long> blockedTransportEdgesPacked;
 
     private final Client client;
     private final ShortestPathConfig config;
@@ -83,6 +101,8 @@ public class PathfinderConfig {
     private volatile long calculationCutoffMillis;
     @Getter
     private volatile boolean avoidWilderness;
+    @Getter
+    private volatile boolean useSpiritTrees;
     private volatile boolean useAgilityShortcuts,
             useGrappleShortcuts,
             useBoats,
@@ -94,13 +114,20 @@ public class PathfinderConfig {
             useMinecarts,
             usePoh,
             useQuetzals,
-            useSpiritTrees,
             useTeleportationLevers,
             useTeleportationMinigames,
             useTeleportationPortals,
             useTeleportationSpells,
             useMagicCarpets,
-            useWildernessObelisks;
+            useHotAirBalloons,
+            useMagicMushtrees,
+            useSeasonalTransports,
+            useWildernessObelisks,
+            useSpiritTreeEtceteria,
+            useSpiritTreeBrimhaven,
+            useSpiritTreePortSarim,
+            useSpiritTreeHosidius,
+            useSpiritTreeFarmingGuild;
     //START microbot variables
     @Getter
     private volatile int distanceBeforeUsingTeleport;
@@ -125,15 +152,29 @@ public class PathfinderConfig {
     // Used to include bank items when searching for item requirements
     private volatile boolean useBankItems = false;
 
+    private Set<Integer> refreshAvailableItemIds;
+    private int[] refreshBoostedLevels;
+    private Map<String, int[]> refreshCurrencyCache;
+    private static final Skill[] SKILLS = Skill.values();
+
+    /**
+     * Memo of last {@link #refreshTransports} result when {@link #computeTransportRefreshCacheKeyHash} and
+     * verification (boosted skills + transport varbits/varplayers) match. Cleared by {@link #invalidateTransportRefreshCache()}.
+     */
+    private volatile TransportRefreshSnapshot transportRefreshSnapshot;
+
     public PathfinderConfig(SplitFlagMap mapData, Map<WorldPoint, Set<Transport>> transports,
                             List<Restriction> restrictions,
                             Client client, ShortestPathConfig config) {
         this.mapData = mapData;
         this.map = ThreadLocal.withInitial(() -> new CollisionMap(this.mapData));
-        this.allTransports = transports;
+        this.allTransports = Collections.synchronizedMap(new HashMap<>());
+        replaceAllTransports(transports);
         this.usableTeleports = ConcurrentHashMap.newKeySet(allTransports.size() / 20);
         this.transports = new ConcurrentHashMap<>(allTransports.size() / 2);
         this.transportsPacked = new PrimitiveIntHashMap<>(allTransports.size() / 2);
+        this.blockedTransportEdgesPacked = ConcurrentHashMap.newKeySet();
+        addStaticBlockedEdges();
         this.client = client;
         this.config = config;
         //START microbot variables
@@ -157,12 +198,13 @@ public class PathfinderConfig {
         useCanoes = ShortestPathPlugin.override("useCanoes", config.useCanoes());
         useCharterShips = ShortestPathPlugin.override("useCharterShips", config.useCharterShips());
         useShips = ShortestPathPlugin.override("useShips", config.useShips());
-        useFairyRings = ShortestPathPlugin.override("useFairyRings", config.useFairyRings());
-        useGnomeGliders = ShortestPathPlugin.override("useGnomeGliders", config.useGnomeGliders());
         useMinecarts = ShortestPathPlugin.override("useMinecarts", config.useMinecarts());
         usePoh = ShortestPathPlugin.override("usePoh", config.usePoh());
-        useQuetzals = ShortestPathPlugin.override("useQuetzals", config.useQuetzals());
-        useSpiritTrees = ShortestPathPlugin.override("useSpiritTrees", config.useSpiritTrees());
+        useSpiritTreeEtceteria = ShortestPathPlugin.override("spiritTreeEtceteria", config.spiritTreeEtceteria());
+        useSpiritTreeBrimhaven = ShortestPathPlugin.override("spiritTreeBrimhaven", config.spiritTreeBrimhaven());
+        useSpiritTreePortSarim = ShortestPathPlugin.override("spiritTreePortSarim", config.spiritTreePortSarim());
+        useSpiritTreeHosidius = ShortestPathPlugin.override("spiritTreeHosidius", config.spiritTreeHosidius());
+        useSpiritTreeFarmingGuild = ShortestPathPlugin.override("spiritTreeFarmingGuild", config.spiritTreeFarmingGuild());
         useTeleportationItems = ShortestPathPlugin.override("useTeleportationItems", config.useTeleportationItems());
         useTeleportationMinigames = ShortestPathPlugin.override("useTeleportationMinigames", config.useTeleportationMinigames());
         useTeleportationLevers = ShortestPathPlugin.override("useTeleportationLevers", config.useTeleportationLevers());
@@ -170,6 +212,9 @@ public class PathfinderConfig {
         useTeleportationSpells = ShortestPathPlugin.override("useTeleportationSpells", config.useTeleportationSpells());
         useWildernessObelisks = ShortestPathPlugin.override("useWildernessObelisks", config.useWildernessObelisks());
         useMagicCarpets = ShortestPathPlugin.override("useMagicCarpets", config.useMagicCarpets());
+        useHotAirBalloons = ShortestPathPlugin.override("useHotAirBalloons", config.useHotAirBalloons());
+        useMagicMushtrees = ShortestPathPlugin.override("useMagicMushtrees", config.useMagicMushtrees());
+        useSeasonalTransports = ShortestPathPlugin.override("useSeasonalTransports", config.useSeasonalTransports());
         distanceBeforeUsingTeleport = ShortestPathPlugin.override("distanceBeforeUsingTeleports", config.distanceBeforeUsingTeleport());
 
         //START microbot variables
@@ -177,15 +222,18 @@ public class PathfinderConfig {
         //END microbot variables
 
         if (GameState.LOGGED_IN.equals(client.getGameState())) {
+            long t0 = System.currentTimeMillis();
             refreshTransports(target);
+            long t1 = System.currentTimeMillis();
             //START microbot variables
             refreshRestrictionData();
+            long t2 = System.currentTimeMillis();
 
-            // Do not switch back to inventory tab if we are inside of the telekinetic room in Mage Training Arena
-            if (Rs2Player.getWorldLocation().getRegionID() != 13463) {
-                Rs2Tab.switchTo(InterfaceTab.INVENTORY);
-            }
+            // Do not switch tabs here. refresh() runs often (pathfinder restarts, walker compareRoutes);
+            // forcing inventory was disruptive and unnecessary — Rs2Inventory reads containers without it.
 
+            WebWalkLog.cfg("refresh transports={}ms restr={}ms total={}ms",
+                    t1 - t0, t2 - t1, t2 - t0);
             //END microbot variables
         }
     }
@@ -213,11 +261,13 @@ public class PathfinderConfig {
             Set<Transport> existingTeleports = transports.get(key);
             if (existingTeleports != null) {
                 existingTeleports.addAll(usableWildyTeleports);
+                transportsPacked.put(packedLocation, existingTeleports);
             } else {
                 transports.put(key, usableWildyTeleports);
+                transportsPacked.put(packedLocation, usableWildyTeleports);
             }
-            transportsPacked.put(packedLocation, usableWildyTeleports);
         }
+
     }
 
     public void filterLocations(Set<WorldPoint> locations, boolean canReviveFiltered) {
@@ -247,31 +297,124 @@ public class PathfinderConfig {
      * @param target Optional target destination for optimized filtering (null for standard filtering)
      */
     private void refreshTransports(WorldPoint target) {
-        useFairyRings &= !QuestState.NOT_STARTED.equals(Rs2Player.getQuestState(Quest.FAIRYTALE_II__CURE_A_QUEEN))
+        useFairyRings = ShortestPathPlugin.override("useFairyRings", config.useFairyRings())
+                && !QuestState.NOT_STARTED.equals(Rs2Player.getQuestState(Quest.FAIRYTALE_II__CURE_A_QUEEN))
                 && (Rs2Inventory.contains(ItemID.DRAMEN_STAFF, ItemID.LUNAR_MOONCLAN_LIMINAL_STAFF)
                 || Rs2Equipment.isWearing(ItemID.DRAMEN_STAFF, ItemID.LUNAR_MOONCLAN_LIMINAL_STAFF)
                 || (ShortestPathPlugin.getPathfinderConfig().useBankItems && (Rs2Bank.hasItem(ItemID.DRAMEN_STAFF) || Rs2Bank.hasItem(ItemID.LUNAR_MOONCLAN_LIMINAL_STAFF)))
                 || Microbot.getVarbitValue(VarbitID.LUMBRIDGE_DIARY_ELITE_COMPLETE) == 1);
-        useGnomeGliders &= QuestState.FINISHED.equals(Rs2Player.getQuestState(Quest.THE_GRAND_TREE));
-        useSpiritTrees &= QuestState.FINISHED.equals(Rs2Player.getQuestState(Quest.TREE_GNOME_VILLAGE));
-        useQuetzals &= QuestState.FINISHED.equals(Rs2Player.getQuestState(Quest.TWILIGHTS_PROMISE));
+        useGnomeGliders = ShortestPathPlugin.override("useGnomeGliders", config.useGnomeGliders())
+                && QuestState.FINISHED.equals(Rs2Player.getQuestState(Quest.THE_GRAND_TREE));
+        useSpiritTrees = ShortestPathPlugin.override("useSpiritTrees", config.useSpiritTrees())
+                && QuestState.FINISHED.equals(Rs2Player.getQuestState(Quest.TREE_GNOME_VILLAGE));
+        useQuetzals = ShortestPathPlugin.override("useQuetzals", config.useQuetzals())
+                && QuestState.FINISHED.equals(Rs2Player.getQuestState(Quest.TWILIGHTS_PROMISE));
+
+        final Rs2LeaguesTransport.LeaguesContext leaguesCtx = Rs2LeaguesTransport.leaguesContext();
+        final int refreshCacheKeyHash = computeTransportRefreshCacheKeyHash(target, leaguesCtx);
+
+        TransportRefreshSnapshot snap = transportRefreshSnapshot;
+        if (snap != null && snap.cacheKeyHash == refreshCacheKeyHash && client != null) {
+            int[] boostedProbe = new int[SKILLS.length];
+            Microbot.getClientThread().runOnClientThreadOptional(() -> {
+                for (int i = 0; i < SKILLS.length; i++) {
+                    boostedProbe[i] = client.getBoostedSkillLevel(SKILLS[i]);
+                }
+                return true;
+            });
+            int verProbe = computeTransportRefreshVerificationHash(boostedProbe, snap.sortedVarbits, snap.sortedVarplayers, snap.sortedQuestIds);
+            if (verProbe == snap.verificationHash) {
+                snap.restoreInto(this);
+                if (useBankItems && config != null && config.maxSimilarTransportDistance() > 0) {
+                    filterSimilarTransports(target);
+                }
+                WebWalkLog.cfg("refresh_transports cache_hit key={}", refreshCacheKeyHash);
+                return;
+            }
+        }
 
         transports.clear();
         transportsPacked.clear();
+        blockedTransportEdgesPacked.clear();
+        addStaticBlockedEdges();
         usableTeleports.clear();
 
-        // Check spirit tree farming states for farmable spirit trees
-        Rs2SpiritTreeCache.getInstance().update();
-        //Rs2SpiritTreeCache.logAllTreeStates();
+        long mergeStart = System.currentTimeMillis();
+        Map<WorldPoint, Set<Transport>> mergedList = createMergedList();
+        long mergeTime = System.currentTimeMillis() - mergeStart;
 
-        for (Map.Entry<WorldPoint, Set<Transport>> entry : createMergedList().entrySet()) {
+        long cacheStart = System.currentTimeMillis();
+        refreshAvailableItemIds = new HashSet<>();
+        refreshCurrencyCache = new HashMap<>();
+        Rs2Inventory.items().forEach(item -> refreshAvailableItemIds.add(item.getId()));
+        Rs2Equipment.all().forEach(item -> refreshAvailableItemIds.add(item.getId()));
+        if (useBankItems) {
+            Rs2Bank.getAll().forEach(item -> refreshAvailableItemIds.add(item.getId()));
+        }
+
+        Set<Integer> varbitIds = new HashSet<>();
+        Set<Integer> varplayerIds = new HashSet<>();
+        for (Set<Transport> ts : mergedList.values()) {
+            for (Transport t : ts) {
+                t.getVarbits().forEach(v -> varbitIds.add(v.getVarbitId()));
+                t.getVarplayers().forEach(v -> varplayerIds.add(v.getVarplayerId()));
+            }
+        }
+
+        refreshBoostedLevels = new int[SKILLS.length];
+        Microbot.getClientThread().runOnClientThreadOptional(() -> {
+            for (int i = 0; i < SKILLS.length; i++) {
+                refreshBoostedLevels[i] = client.getBoostedSkillLevel(SKILLS[i]);
+            }
+            for (int id : varbitIds) {
+                Microbot.getVarbitValue(id);
+            }
+            for (int id : varplayerIds) {
+                Microbot.getVarbitPlayerValue(id);
+            }
+            return true;
+        });
+        long cacheTime = System.currentTimeMillis() - cacheStart;
+
+        long filterStart = System.currentTimeMillis();
+        int totalTransports = 0;
+        int checkedTransports = 0;
+        long useTransportTimeNanos = 0;
+        Map<TransportType, int[]> typeStats = new java.util.EnumMap<>(TransportType.class);
+
+        // One snapshot for this refreshTransports pass (avoid re-querying unlocked regions per transport).
+        // Trade-off: unlock mid-refresh is picked up on next refresh — acceptable vs client-thread churn per edge.
+        // Scripts that must path immediately after unlock should trigger an explicit transport refresh / recalc.
+        // Reviewers: do not "fix" staleness by calling leaguesContext() per transport — intentional batching; callers refresh explicitly when needed.
+
+        for (Map.Entry<WorldPoint, Set<Transport>> entry : mergedList.entrySet()) {
             WorldPoint point = entry.getKey();
             Set<Transport> usableTransports = new HashSet<>(entry.getValue().size());
             for (Transport transport : entry.getValue()) {
-                // Mutate action
+                totalTransports++;
                 updateActionBasedOnQuestState(transport);
 
-                if (!useTransport(transport)) continue;
+                long t0 = System.nanoTime();
+                boolean usable = useTransport(transport);
+                long elapsed = System.nanoTime() - t0;
+                useTransportTimeNanos += elapsed;
+
+                TransportType type = transport.getType();
+                int[] stats = typeStats.computeIfAbsent(type, k -> new int[]{0, 0, 0});
+                stats[0]++;
+                stats[2] += (int)(elapsed / 1_000);
+                if (usable) stats[1]++;
+
+                // stats[1] is incremented when useTransport() is true; isTransportAllowed may still reject below.
+                if (!usable) {
+                    addBlockedTransportEdgeIfNeeded(transport);
+                    continue;
+                }
+
+                if (!Rs2LeaguesTransport.isTransportAllowed(leaguesCtx, transport)) {
+                    continue;
+                }
+                checkedTransports++;
                 if (point == null) {
                     usableTeleports.add(transport);
                 } else {
@@ -285,10 +428,178 @@ public class PathfinderConfig {
             }
         }
 
-        // Filter similar transports based on distance when walk with banked transports is enabled
+        Rs2LeaguesTransport.injectLeaguesTransports(this, leaguesCtx, usableTeleports, transports, transportsPacked, typeStats);
+        long filterTime = System.currentTimeMillis() - filterStart;
+
+        int[] sortedVarbits = varbitIds.stream().mapToInt(Integer::intValue).sorted().toArray();
+        int[] sortedVarplayers = varplayerIds.stream().mapToInt(Integer::intValue).sorted().toArray();
+        int[] sortedQuestIds = mergedList.values().stream()
+                .flatMap(Set::stream)
+                .filter(Objects::nonNull)
+                .map(Transport::getQuests)
+                .filter(Objects::nonNull)
+                .flatMap(m -> m.keySet().stream())
+                .filter(Objects::nonNull)
+                .mapToInt(Quest::getId)
+                .distinct()
+                .sorted()
+                .toArray();
+        int verificationHash = computeTransportRefreshVerificationHash(refreshBoostedLevels, sortedVarbits, sortedVarplayers, sortedQuestIds);
+        transportRefreshSnapshot = TransportRefreshSnapshot.capture(
+                refreshCacheKeyHash, verificationHash, sortedVarbits, sortedVarplayers, sortedQuestIds, transports, usableTeleports);
+
+        long similarStart = System.currentTimeMillis();
         if (useBankItems && config.maxSimilarTransportDistance() > 0) {
             filterSimilarTransports(target);
         }
+        long similarTime = System.currentTimeMillis() - similarStart;
+
+        refreshAvailableItemIds = null;
+        refreshBoostedLevels = null;
+        refreshCurrencyCache = null;
+
+        // varbit/varplayer counts = distinct ids referenced by merged transport definitions this refresh, not total client var space.
+        WebWalkLog.cfg("refresh_transports merge={}ms cache={}ms filter={}ms useTrans={}ms similar={}ms total/chk={}/{} usablePost={} vb={} vp={}",
+                mergeTime, cacheTime, filterTime, useTransportTimeNanos / 1_000_000, similarTime,
+                totalTransports, checkedTransports, usableTeleports.size(), varbitIds.size(), varplayerIds.size());
+
+        typeStats.entrySet().stream()
+                .sorted((a, b) -> Integer.compare(b.getValue()[2], a.getValue()[2]))
+                .limit(5)
+                .forEach(e -> WebWalkLog.cfg("refresh_transports type {} cnt={} passed={} timeMs={}",
+                        e.getKey(), e.getValue()[0], e.getValue()[1], e.getValue()[2] / 1000));
+
+    }
+
+    public boolean isBlockedTransportEdge(int originPacked, int destinationPacked) {
+        return blockedTransportEdgesPacked.contains(transportEdgeKey(originPacked, destinationPacked));
+    }
+
+    public boolean isBlockedTransportStep(int originPacked, int destinationPacked) {
+        return isBlockedTransportStep(originPacked, destinationPacked, blockedTransportEdgesPacked);
+    }
+
+    static boolean isBlockedTransportStep(int originPacked, int destinationPacked, Set<Long> blockedEdges) {
+        if (blockedEdges == null || blockedEdges.isEmpty()) {
+            return false;
+        }
+        if (blockedEdges.contains(transportEdgeKey(originPacked, destinationPacked))) {
+            return true;
+        }
+
+        int ox = WorldPointUtil.unpackWorldX(originPacked);
+        int oy = WorldPointUtil.unpackWorldY(originPacked);
+        int oz = WorldPointUtil.unpackWorldPlane(originPacked);
+        int dx = Integer.signum(WorldPointUtil.unpackWorldX(destinationPacked) - ox);
+        int dy = Integer.signum(WorldPointUtil.unpackWorldY(destinationPacked) - oy);
+        int dz = WorldPointUtil.unpackWorldPlane(destinationPacked) - oz;
+        if (dz != 0 || dx == 0 || dy == 0) {
+            return false;
+        }
+
+        int xThenY = WorldPointUtil.packWorldPoint(ox + dx, oy, oz);
+        int yThenX = WorldPointUtil.packWorldPoint(ox, oy + dy, oz);
+        return blockedEdges.contains(transportEdgeKey(originPacked, xThenY))
+                || blockedEdges.contains(transportEdgeKey(xThenY, destinationPacked))
+                || blockedEdges.contains(transportEdgeKey(originPacked, yThenX))
+                || blockedEdges.contains(transportEdgeKey(yThenX, destinationPacked));
+    }
+
+    public void addBlockedTransportEdgeIfNeeded(Transport transport) {
+        if (!blocksWalkingEdgeWhenUnavailable(transport)) {
+            return;
+        }
+        addBlockedEdge(transport.getOrigin(), transport.getDestination());
+    }
+
+    static long transportEdgeKey(int originPacked, int destinationPacked) {
+        return ((long) originPacked << 32) ^ (destinationPacked & 0xffffffffL);
+    }
+
+    private void addStaticBlockedEdges() {
+        blockedTransportEdgesPacked.addAll(STATIC_BLOCKED_EDGES_PACKED);
+    }
+
+    private void addBlockedEdge(WorldPoint origin, WorldPoint destination) {
+        blockedTransportEdgesPacked.add(transportEdgeKey(
+                WorldPointUtil.packWorldPoint(origin),
+                WorldPointUtil.packWorldPoint(destination)));
+    }
+
+    private static Set<Long> loadStaticBlockedEdgesFromResources() {
+        Set<Long> edges = new HashSet<>();
+        final String delimColumn = "\t";
+        final String prefixComment = "#";
+
+        try {
+            String s = new String(Util.readAllBytes(
+                    ShortestPathPlugin.class.getResourceAsStream("blocked_edges.tsv")), StandardCharsets.UTF_8);
+            Scanner scanner = new Scanner(s);
+            String headerLine = scanner.nextLine();
+            headerLine = headerLine.startsWith(prefixComment + " ")
+                    ? headerLine.replace(prefixComment + " ", prefixComment)
+                    : headerLine;
+            headerLine = headerLine.startsWith(prefixComment)
+                    ? headerLine.replace(prefixComment, "")
+                    : headerLine;
+            String[] headers = headerLine.split(delimColumn);
+
+            while (scanner.hasNextLine()) {
+                String line = scanner.nextLine();
+                if (line.startsWith(prefixComment) || line.isBlank()) {
+                    continue;
+                }
+
+                String[] fields = line.split(delimColumn);
+                Map<String, String> fieldMap = new HashMap<>();
+                for (int i = 0; i < headers.length; i++) {
+                    if (i < fields.length) {
+                        fieldMap.put(headers[i], fields[i]);
+                    }
+                }
+
+                WorldPoint origin = parseBlockedEdgePoint(fieldMap.get("Origin"));
+                WorldPoint destination = parseBlockedEdgePoint(fieldMap.get("Destination"));
+                boolean bidirectional = Boolean.parseBoolean(fieldMap.getOrDefault("Bidirectional", "false"));
+                addStaticEdge(edges, origin, destination);
+                if (bidirectional) {
+                    addStaticEdge(edges, destination, origin);
+                }
+            }
+            scanner.close();
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to load shortest-path blocked edges", e);
+        }
+
+        return Collections.unmodifiableSet(edges);
+    }
+
+    private static WorldPoint parseBlockedEdgePoint(String point) {
+        if (point == null || point.isBlank()) {
+            throw new IllegalArgumentException("Blocked edge point is blank");
+        }
+        String[] parts = point.trim().split(" ");
+        if (parts.length != 3) {
+            throw new IllegalArgumentException("Blocked edge point must be 'x y plane': " + point);
+        }
+        return new WorldPoint(
+                Integer.parseInt(parts[0]),
+                Integer.parseInt(parts[1]),
+                Integer.parseInt(parts[2]));
+    }
+
+    private static void addStaticEdge(Set<Long> edges, WorldPoint origin, WorldPoint destination) {
+        edges.add(transportEdgeKey(
+                WorldPointUtil.packWorldPoint(origin),
+                WorldPointUtil.packWorldPoint(destination)));
+    }
+
+    private static boolean blocksWalkingEdgeWhenUnavailable(Transport transport) {
+        if (transport == null || transport.getOrigin() == null || transport.getDestination() == null) {
+            return false;
+        }
+        return transport.getType() == TransportType.AGILITY_SHORTCUT
+                || transport.getType() == TransportType.GRAPPLE_SHORTCUT;
     }
 
 
@@ -302,7 +613,7 @@ public class PathfinderConfig {
         }
 
         // Add transports from PoH to somewhere in the world
-        for (var entry : Rs2PohCache.getAvailableTransportsMap(allTransports).entrySet()) {
+        for (var entry : PohPanel.getAvailableTransports(allTransports).entrySet()) {
             mergedTransports
                     .computeIfAbsent(entry.getKey(), k -> new HashSet<>())
                     .addAll(entry.getValue());
@@ -313,7 +624,7 @@ public class PathfinderConfig {
             return mergedTransports;
         }
         // Add transports from the world to PoH
-        for (var entry : PohTeleports.getTransportsToPoh().entrySet()) {
+        for (var entry : PohPanel.getTransportsToPoh().entrySet()) {
             mergedTransports
                     .computeIfAbsent(entry.getKey(), k -> new HashSet<>())
                     .addAll(entry.getValue());
@@ -323,6 +634,36 @@ public class PathfinderConfig {
 
     public void refresh() {
         refresh(null);
+    }
+
+    /**
+     * Drop {@link #transportRefreshSnapshot} so the next {@link #refresh(WorldPoint)} rebuilds transport maps
+     * (inventory/quest/varbit changes that are not captured by the memo key, script-driven transport mutations, etc.).
+     */
+    public void invalidateTransportRefreshCache() {
+        transportRefreshSnapshot = null;
+    }
+
+    /**
+     * Rebuilds base transport definitions from packaged TSV resources and swaps them into {@link #allTransports}.
+     * The next {@link #refresh(WorldPoint)} will use the reloaded definitions.
+     *
+     * @return number of origin nodes loaded
+     */
+    public int reloadTransportDefinitionsFromResources() {
+        Map<WorldPoint, Set<Transport>> reloaded = Transport.reloadFromResources();
+        replaceAllTransports(reloaded);
+        invalidateTransportRefreshCache();
+        return allTransports.size();
+    }
+
+    private void replaceAllTransports(Map<WorldPoint, Set<Transport>> source) {
+        allTransports.clear();
+        if (source == null || source.isEmpty()) {
+            return;
+        }
+        source.forEach((origin, set) ->
+                allTransports.put(origin, set == null ? Collections.emptySet() : new HashSet<>(set)));
     }
 
     private void refreshRestrictionData() {
@@ -356,7 +697,7 @@ public class PathfinderConfig {
                         return true;
                     }
                     // Varplayer check
-                    if (entry.getVarplayers().stream().anyMatch(varplayerCheck -> !varplayerCheck.matches(Microbot.getVarbitPlayerValue(varplayerCheck.getVarplayerId())))) {
+                    if (entry.getVarplayers().stream().anyMatch(varplayerCheck -> !varplayerCheck.matches(getLiveVarplayerValue(varplayerCheck.getVarplayerId())))) {
                         return true;
                     }
                     // Skill level check
@@ -423,38 +764,34 @@ public class PathfinderConfig {
                 && !isInWilderness(packedPosition) && isInWilderness(packedNeighborPosition);
     }
 
-    public boolean isInLevel19Wilderness(int packedPoint) {
-        return WorldPointUtil.distanceToArea(packedPoint, WILDERNESS_ABOVE_GROUND_LEVEL_19) == 0
-                || WorldPointUtil.distanceToArea(packedPoint, WILDERNESS_UNDERGROUND_LEVEL_19) == 0;
+    public boolean isInLevel20Wilderness(int packedPoint) {
+        return WorldPointUtil.distanceToArea(packedPoint, WILDERNESS_ABOVE_GROUND_LEVEL_20) == 0
+                || WorldPointUtil.distanceToArea(packedPoint, WILDERNESS_UNDERGROUND_LEVEL_20) == 0;
     }
 
-    public boolean isInLevel29Wilderness(int packedPoint) {
-        return WorldPointUtil.distanceToArea(packedPoint, WILDERNESS_ABOVE_GROUND_LEVEL_29) == 0
-                || WorldPointUtil.distanceToArea(packedPoint, WILDERNESS_UNDERGROUND_LEVEL_29) == 0;
-
+    public boolean isInLevel30Wilderness(int packedPoint) {
+        return WorldPointUtil.distanceToArea(packedPoint, WILDERNESS_ABOVE_GROUND_LEVEL_30) == 0
+                || WorldPointUtil.distanceToArea(packedPoint, WILDERNESS_UNDERGROUND_LEVEL_30) == 0;
     }
 
     private boolean completedQuests(Transport transport) {
-        return transport.getQuests().entrySet().stream()
-                .allMatch(entry -> {
-                    QuestState playerState = Rs2Player.getQuestState(entry.getKey());
-                    QuestState requiredState = entry.getValue();
-                    int playerIndex = questStateOrder.indexOf(playerState);
-                    int requiredIndex = questStateOrder.indexOf(requiredState);
-                    return playerIndex >= requiredIndex;
-                });
+        return TransportRequirementPolicy.completedQuests(transport, questStateOrder);
     }
 
     private boolean varbitChecks(Transport transport) {
-        return transport.getVarbits().isEmpty() ||
-                transport.getVarbits().stream()
-                        .allMatch(varbitCheck -> varbitCheck.matches(Microbot.getVarbitValue(varbitCheck.getVarbitId())));
+        return TransportRequirementPolicy.varbitChecks(transport);
     }
 
     private boolean varplayerChecks(Transport transport) {
         return transport.getVarplayers().isEmpty() ||
                 transport.getVarplayers().stream()
-                        .allMatch(varplayerCheck -> varplayerCheck.matches(Microbot.getVarbitPlayerValue(varplayerCheck.getVarplayerId())));
+                        .allMatch(varplayerCheck -> varplayerCheck.matches(getLiveVarplayerValue(varplayerCheck.getVarplayerId())));
+    }
+
+    private int getLiveVarplayerValue(int varplayerId) {
+        return Microbot.getClientThread()
+                .runOnClientThreadOptional(() -> client.getVarpValue(varplayerId))
+                .orElse(0);
     }
 
     private boolean useTransport(Transport transport) {
@@ -468,6 +805,10 @@ public class PathfinderConfig {
             log.debug("Transport ( O: {} D: {} ) requires members world", transport.getOrigin(), transport.getDestination());
             return false;
         }
+        if (transport.getType() == TransportType.SPIRIT_TREE && !isSpiritTreeRouteEnabled(transport)) {
+            log.debug("Transport ( O: {} D: {} ) is a spirit tree route but the tree is disabled", transport.getOrigin(), transport.getDestination());
+            return false;
+        }
         // If you don't meet level requirements
         if (!hasRequiredLevels(transport)) {
             log.debug("Transport ( O: {} D: {} ) requires skill levels {}", transport.getOrigin(), transport.getDestination(), Arrays.toString(transport.getSkillLevels()));
@@ -478,8 +819,6 @@ public class PathfinderConfig {
             log.debug("Transport ( O: {} D: {} ) requires quests {}", transport.getOrigin(), transport.getDestination(), transport.getQuests());
             return false;
         }
-        // Check Spirit Tree specific requirements (farming state for farmable trees)
-        if (transport.getType() == TransportType.SPIRIT_TREE) return isSpiritTreeUsable(transport);
 
         // If the transport has varbit requirements & the varbits do not match
         if (!varbitChecks(transport)) {
@@ -494,15 +833,26 @@ public class PathfinderConfig {
         }
 
         // If you don't have the required currency & amount for transport
-        if (transport.getCurrencyAmount() > 0
-                && !Rs2Inventory.hasItemAmount(transport.getCurrencyName(), transport.getCurrencyAmount())
-                && !(ShortestPathPlugin.getPathfinderConfig().useBankItems && Rs2Bank.count(transport.getCurrencyName()) >= transport.getCurrencyAmount())) {
-            log.debug("Transport ( O: {} D: {} ) requires {} x {}", transport.getOrigin(), transport.getDestination(), transport.getCurrencyAmount(), transport.getCurrencyName());
-            return false;
+        if (transport.getCurrencyAmount() > 0) {
+            if (refreshCurrencyCache != null) {
+                int[] cached = refreshCurrencyCache.computeIfAbsent(transport.getCurrencyName(), name -> {
+                    int invCount = Rs2Inventory.count(name);
+                    int bankCount = useBankItems ? Rs2Bank.count(name) : 0;
+                    return new int[]{invCount, bankCount};
+                });
+                if (cached[0] < transport.getCurrencyAmount() && cached[1] < transport.getCurrencyAmount()) {
+                    log.debug("Transport ( O: {} D: {} ) requires {} x {}", transport.getOrigin(), transport.getDestination(), transport.getCurrencyAmount(), transport.getCurrencyName());
+                    return false;
+                }
+            } else if (!Rs2Inventory.hasItemAmount(transport.getCurrencyName(), transport.getCurrencyAmount())
+                    && !(useBankItems && Rs2Bank.count(transport.getCurrencyName()) >= transport.getCurrencyAmount())) {
+                log.debug("Transport ( O: {} D: {} ) requires {} x {}", transport.getOrigin(), transport.getDestination(), transport.getCurrencyAmount(), transport.getCurrencyName());
+                return false;
+            }
         }
 
         // Check if Teleports are globally disabled
-        if (TransportType.isTeleport(transport.getType()) && Rs2Walker.disableTeleports) {
+        if (TransportType.isTeleport(transport.getType(), transport.getOrigin()) && Rs2Walker.disableTeleports) {
             log.debug("Transport ( O: {} D: {} ) is a teleport but teleports are globally disabled", transport.getOrigin(), transport.getDestination());
             return false;
         }
@@ -537,14 +887,34 @@ public class PathfinderConfig {
     }
 
     /**
+     * Same gating as the main {@link #refreshTransports} loop, for rows injected after the merge pass
+     * (Leagues catalog / Area teleports): quest action patch, {@link #useTransport}, {@link Rs2LeaguesTransport#isTransportAllowed}.
+     */
+    public boolean isTransportUsableWithLeaguesContext(Transport transport, Rs2LeaguesTransport.LeaguesContext leaguesCtx) {
+        if (transport == null || leaguesCtx == null) {
+            return false;
+        }
+        updateActionBasedOnQuestState(transport);
+        if (!useTransport(transport)) {
+            return false;
+        }
+        return Rs2LeaguesTransport.isTransportAllowed(leaguesCtx, transport);
+    }
+
+    /**
      * Checks if the player has all the required skill levels for the transport
      */
     private boolean hasRequiredLevels(Transport transport) {
         int[] requiredLevels = transport.getSkillLevels();
-        Skill[] skills = Skill.values();
+        if (refreshBoostedLevels != null) {
+            for (int i = 0; i < requiredLevels.length; i++) {
+                if (requiredLevels[i] > 0 && refreshBoostedLevels[i] < requiredLevels[i]) return false;
+            }
+            return true;
+        }
         return IntStream.range(0, requiredLevels.length)
-                .filter(i -> requiredLevels[i] > 0)
-                .allMatch(i -> Microbot.getClient().getBoostedSkillLevel(skills[i]) >= requiredLevels[i]);
+            .filter(i -> requiredLevels[i] > 0)
+            .allMatch(i -> Microbot.getClient().getBoostedSkillLevel(SKILLS[i]) >= requiredLevels[i]);
     }
 
     /**
@@ -554,8 +924,8 @@ public class PathfinderConfig {
         int[] requiredLevels = restriction.getSkillLevels();
         Skill[] skills = Skill.values();
         return IntStream.range(0, requiredLevels.length)
-                .filter(i -> requiredLevels[i] > 0)
-                .allMatch(i -> Microbot.getClient().getBoostedSkillLevel(skills[i]) >= requiredLevels[i]);
+            .filter(i -> requiredLevels[i] > 0)
+            .allMatch(i -> Microbot.getClient().getBoostedSkillLevel(skills[i]) >= requiredLevels[i]);
     }
 
     private void updateActionBasedOnQuestState(Transport transport) {
@@ -566,6 +936,41 @@ public class PathfinderConfig {
                 transport.setAction("Talk-to");
             }
         }
+    }
+
+    /**
+     * Toggle for {@link #SPIRIT_TREE_DESTINATIONS_ORDERED}[{@code index}]. Must stay aligned with array length.
+     */
+    private boolean spiritTreeDestinationToggle(int index) {
+        switch (index) {
+            case 0:
+                return useSpiritTreeEtceteria;
+            case 1:
+                return useSpiritTreeBrimhaven;
+            case 2:
+                return useSpiritTreePortSarim;
+            case 3:
+                return useSpiritTreeHosidius;
+            case 4:
+                return useSpiritTreeFarmingGuild;
+            default:
+                throw new AssertionError("spirit tree index " + index);
+        }
+    }
+
+    private boolean isSpiritTreeRouteEnabled(Transport transport) {
+        WorldPoint origin = transport.getOrigin();
+        WorldPoint destination = transport.getDestination();
+        for (int i = 0; i < SPIRIT_TREE_DESTINATIONS_ORDERED.length; i++) {
+            if (!spiritTreeDestinationToggle(i)) {
+                WorldPoint toggledPoint = SPIRIT_TREE_DESTINATIONS_ORDERED[i];
+                if ((destination != null && destination.equals(toggledPoint))
+                        || (origin != null && origin.distanceTo2D(toggledPoint) <= 5)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private boolean isFeatureEnabled(Transport transport) {
@@ -631,6 +1036,12 @@ public class PathfinderConfig {
                 return useTeleportationSpells;
             case MAGIC_CARPET:
                 return useMagicCarpets;
+            case HOT_AIR_BALLOON:
+                return useHotAirBalloons;
+            case MAGIC_MUSHTREE:
+                return useMagicMushtrees;
+            case SEASONAL_TRANSPORT:
+                return useSeasonalTransports;
             case WILDERNESS_OBELISK:
                 return useWildernessObelisks;
             default:
@@ -656,6 +1067,12 @@ public class PathfinderConfig {
     private boolean hasRequiredItems(Transport transport) {
         if (requiresChronicle(transport)) return hasChronicleCharges();
 
+        if (refreshAvailableItemIds != null) {
+            return transport.getItemIdRequirements()
+                    .stream()
+                    .flatMap(Collection::stream)
+                    .anyMatch(refreshAvailableItemIds::contains);
+        }
         return transport.getItemIdRequirements()
                 .stream()
                 .flatMap(Collection::stream)
@@ -719,19 +1136,6 @@ public class PathfinderConfig {
 
         // Validate charges
         return charges != null && Integer.parseInt(charges) > 0;
-    }
-
-    /**
-     * Check if a spirit tree transport is usable
-     * This method integrates with the farming system to determine if farmable spirit trees
-     * are planted and healthy enough for transportation
-     *
-     * @param transport The spirit tree transport to check
-     * @return true if the spirit tree is available for travel
-     */
-    private boolean isSpiritTreeUsable(Transport transport) {
-        // Use the Rs2SpiritTreeCache directly for better performance and consistency
-        return Rs2SpiritTreeCache.isSpiritTreeTransportAvailable(transport);
     }
 
     @Deprecated(since = "1.6.2 - Add Restrictions to restrictions.tsv", forRemoval = true)
@@ -1007,6 +1411,212 @@ public class PathfinderConfig {
             return "Transport";
         } else {
             return transport.getType().toString();
+        }
+    }
+
+    private int computeTransportRefreshCacheKeyHash(WorldPoint target, Rs2LeaguesTransport.LeaguesContext leaguesCtx) {
+        assert leaguesCtx != null;
+        int invFp = fingerprintInventoryEquipmentBank();
+        int members = (client != null && client.getWorldType().contains(WorldType.MEMBERS)) ? 1 : 0;
+        int preferTp = (config != null && config.preferTransportToTarget()) ? 1 : 0;
+        int maxSimilar = config != null ? config.maxSimilarTransportDistance() : 0;
+        return Objects.hash(
+                packTransportRefreshToggleBits(),
+                useTeleportationItems,
+                ignoreTeleportAndItems,
+                useBankItems,
+                useNpcs,
+                invFp,
+                members,
+                Rs2Walker.disableTeleports,
+                Microbot.getVarbitValue(VarbitID.LEAGUE_TYPE),
+                leaguesCtx.isActive(),
+                leaguesCtx.getUnlockedRegions().hashCode(),
+                usePoh,
+                PohTeleports.isInHouse(),
+                maxSimilar,
+                preferTp,
+                distanceBeforeUsingTeleport);
+    }
+
+    private long packTransportRefreshToggleBits() {
+        long bits = 0;
+        int s = 0;
+        if (useAgilityShortcuts) bits |= 1L << s;
+        s++;
+        if (useGrappleShortcuts) bits |= 1L << s;
+        s++;
+        if (useBoats) bits |= 1L << s;
+        s++;
+        if (useCanoes) bits |= 1L << s;
+        s++;
+        if (useCharterShips) bits |= 1L << s;
+        s++;
+        if (useShips) bits |= 1L << s;
+        s++;
+        if (useFairyRings) bits |= 1L << s;
+        s++;
+        if (useGnomeGliders) bits |= 1L << s;
+        s++;
+        if (useMinecarts) bits |= 1L << s;
+        s++;
+        if (usePoh) bits |= 1L << s;
+        s++;
+        if (useQuetzals) bits |= 1L << s;
+        s++;
+        if (useSpiritTrees) bits |= 1L << s;
+        s++;
+        if (useTeleportationLevers) bits |= 1L << s;
+        s++;
+        if (useTeleportationMinigames) bits |= 1L << s;
+        s++;
+        if (useTeleportationPortals) bits |= 1L << s;
+        s++;
+        if (useTeleportationSpells) bits |= 1L << s;
+        s++;
+        if (useMagicCarpets) bits |= 1L << s;
+        s++;
+        if (useHotAirBalloons) bits |= 1L << s;
+        s++;
+        if (useMagicMushtrees) bits |= 1L << s;
+        s++;
+        if (useSeasonalTransports) bits |= 1L << s;
+        s++;
+        if (useWildernessObelisks) bits |= 1L << s;
+        s++;
+        if (useSpiritTreeEtceteria) bits |= 1L << s;
+        s++;
+        if (useSpiritTreeBrimhaven) bits |= 1L << s;
+        s++;
+        if (useSpiritTreePortSarim) bits |= 1L << s;
+        s++;
+        if (useSpiritTreeHosidius) bits |= 1L << s;
+        s++;
+        if (useSpiritTreeFarmingGuild) bits |= 1L << s;
+        s++;
+        if (avoidWilderness) bits |= 1L << s;
+        return bits;
+    }
+
+    private int fingerprintInventoryEquipmentBank() {
+        final int[] h = {1};
+        Rs2Inventory.items().forEach(item -> {
+            h[0] = 31 * h[0] + item.getId();
+            h[0] = 31 * h[0] + item.getQuantity();
+        });
+        Rs2Equipment.all().forEach(item -> {
+            h[0] = 31 * h[0] + item.getId();
+            h[0] = 31 * h[0] + item.getQuantity();
+        });
+        if (useBankItems) {
+            Rs2Bank.getAll().forEach(item -> {
+                h[0] = 31 * h[0] + item.getId();
+                h[0] = 31 * h[0] + item.getQuantity();
+            });
+        }
+        return h[0];
+    }
+
+    private static int computeTransportRefreshVerificationHash(int[] boostedLevels, int[] sortedVarbits, int[] sortedVarplayers, int[] sortedQuestIds) {
+        return computeTransportRefreshVerificationHash(boostedLevels, sortedVarbits, sortedVarplayers, sortedQuestIds, questId -> {
+            Quest quest = resolveQuestById(questId);
+            return quest == null ? QuestState.NOT_STARTED : Rs2Player.getQuestState(quest);
+        });
+    }
+
+    static int computeTransportRefreshVerificationHash(int[] boostedLevels, int[] sortedVarbits, int[] sortedVarplayers,
+            int[] sortedQuestIds, IntFunction<QuestState> questStateProvider) {
+        assert boostedLevels != null;
+        int h = Arrays.hashCode(boostedLevels);
+        for (int id : sortedVarbits) {
+            h = 31 * h + id;
+            h = 31 * h + Microbot.getVarbitValue(id);
+        }
+        for (int id : sortedVarplayers) {
+            h = 31 * h + id;
+            h = 31 * h + Microbot.getVarbitPlayerValue(id);
+        }
+        for (int questId : sortedQuestIds) {
+            h = 31 * h + questId;
+            h = 31 * h + questStateHashCode(questStateProvider.apply(questId));
+        }
+        int clientOfKourendId = Quest.CLIENT_OF_KOUREND.getId();
+        if (Arrays.binarySearch(sortedQuestIds, clientOfKourendId) < 0) {
+            h = 31 * h + clientOfKourendId;
+            h = 31 * h + questStateHashCode(questStateProvider.apply(clientOfKourendId));
+        }
+        return h;
+    }
+
+    private static int questStateHashCode(QuestState state) {
+        if (state == null) {
+            return -1;
+        }
+        switch (state) {
+            case NOT_STARTED:
+                return 0;
+            case IN_PROGRESS:
+                return 1;
+            case FINISHED:
+                return 2;
+            default:
+                return state.ordinal() + 3;
+        }
+    }
+
+    private static Quest resolveQuestById(int questId) {
+        for (Quest quest : Quest.values()) {
+            if (quest.getId() == questId) {
+                return quest;
+            }
+        }
+        return null;
+    }
+
+    private static final class TransportRefreshSnapshot {
+        private final int cacheKeyHash;
+        private final int verificationHash;
+        private final int[] sortedVarbits;
+        private final int[] sortedVarplayers;
+        private final int[] sortedQuestIds;
+        private final Map<WorldPoint, Set<Transport>> transportsData;
+        private final Set<Transport> usableData;
+
+        private TransportRefreshSnapshot(int cacheKeyHash, int verificationHash, int[] sortedVarbits, int[] sortedVarplayers,
+                int[] sortedQuestIds,
+                Map<WorldPoint, Set<Transport>> transportsData, Set<Transport> usableData) {
+            this.cacheKeyHash = cacheKeyHash;
+            this.verificationHash = verificationHash;
+            this.sortedVarbits = sortedVarbits;
+            this.sortedVarplayers = sortedVarplayers;
+            this.sortedQuestIds = sortedQuestIds;
+            this.transportsData = transportsData;
+            this.usableData = usableData;
+        }
+
+        static TransportRefreshSnapshot capture(int cacheKeyHash, int verificationHash, int[] sortedVarbits, int[] sortedVarplayers,
+                int[] sortedQuestIds,
+                Map<WorldPoint, Set<Transport>> srcTransports, Set<Transport> srcUsable) {
+            assert srcTransports != null && srcUsable != null;
+            Map<WorldPoint, Set<Transport>> copy = new HashMap<>(srcTransports.size());
+            for (Map.Entry<WorldPoint, Set<Transport>> e : srcTransports.entrySet()) {
+                copy.put(e.getKey(), new HashSet<>(e.getValue()));
+            }
+            Set<Transport> usableCopy = new HashSet<>(srcUsable);
+            return new TransportRefreshSnapshot(cacheKeyHash, verificationHash, sortedVarbits, sortedVarplayers, sortedQuestIds, copy, usableCopy);
+        }
+
+        void restoreInto(PathfinderConfig c) {
+            c.transports.clear();
+            c.transportsPacked.clear();
+            c.usableTeleports.clear();
+            for (Map.Entry<WorldPoint, Set<Transport>> e : transportsData.entrySet()) {
+                WorldPoint wp = e.getKey();
+                Set<Transport> set = new HashSet<>(e.getValue());
+                c.transports.put(wp, set);
+                c.transportsPacked.put(WorldPointUtil.packWorldPoint(wp), set);
+            }
+            c.usableTeleports.addAll(new HashSet<>(usableData));
         }
     }
 

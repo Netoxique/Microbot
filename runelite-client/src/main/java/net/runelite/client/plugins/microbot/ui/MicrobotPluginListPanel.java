@@ -25,6 +25,7 @@
 package net.runelite.client.plugins.microbot.ui;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.html.HtmlEscapers;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.config.Config;
@@ -41,11 +42,11 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.PluginInstantiationException;
 import net.runelite.client.plugins.PluginManager;
-import net.runelite.client.plugins.config.PluginSearch;
 import net.runelite.client.plugins.microbot.MicrobotConfig;
 import net.runelite.client.plugins.microbot.externalplugins.MicrobotPluginManager;
+import net.runelite.client.plugins.microbot.ui.search.MicrobotPluginSearch;
 import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.MultiplexingPluginPanel;
+import net.runelite.client.ui.DynamicGridLayout;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.ui.components.IconTextField;
 import net.runelite.client.util.Text;
@@ -68,7 +69,10 @@ import java.util.stream.Stream;
 
 @Slf4j
 @Singleton
-public class MicrobotPluginListPanel extends PluginPanel {
+public class MicrobotPluginListPanel extends MicrobotPluginPanel {
+    static final int LIST_VIEW_WIDTH = PluginPanel.PANEL_WIDTH - PluginPanel.SCROLLBAR_WIDTH;
+    static final int LIST_ITEM_WIDTH = LIST_VIEW_WIDTH - 20;
+
     private static final String RUNELITE_GROUP_NAME = MicrobotConfig.class.getAnnotation(ConfigGroup.class).value();
     private static final String PINNED_PLUGINS_CONFIG_KEY = "pinnedPlugins";
     private static final ImmutableList<String> CATEGORY_TAGS = ImmutableList.of(
@@ -92,7 +96,7 @@ public class MicrobotPluginListPanel extends PluginPanel {
     private final ExternalPluginManager externalPluginManager;
 
     @Getter
-    private final MultiplexingPluginPanel muxer;
+    private final MicrobotMultiplexingPluginPanel muxer;
 
     private final IconTextField searchBar;
     private final JScrollPane scrollPane;
@@ -115,14 +119,14 @@ public class MicrobotPluginListPanel extends PluginPanel {
         this.configPanelProvider = configPanelProvider;
         this.microbotPluginManager = microbotPluginManager;
 
-        muxer = new MultiplexingPluginPanel(this) {
+        muxer = new MicrobotMultiplexingPluginPanel(this) {
             @Override
-            protected void onAdd(PluginPanel p) {
+            protected void onAdd(MicrobotPluginPanel p) {
                 eventBus.register(p);
             }
 
             @Override
-            protected void onRemove(PluginPanel p) {
+            protected void onRemove(MicrobotPluginPanel p) {
                 eventBus.unregister(p);
             }
         };
@@ -159,17 +163,18 @@ public class MicrobotPluginListPanel extends PluginPanel {
         topPanel.add(searchBar, BorderLayout.CENTER);
         add(topPanel, BorderLayout.NORTH);
 
-        mainPanel = new MicrobotFixedWidthPanel();
+        mainPanel = new MicrobotFixedWidthPanel(LIST_VIEW_WIDTH);
         mainPanel.setBorder(new EmptyBorder(8, 10, 10, 10));
-        mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
+        mainPanel.setLayout(new DynamicGridLayout(0, 1, 0, 5));
         mainPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JPanel northPanel = new MicrobotFixedWidthPanel();
+        JPanel northPanel = new MicrobotFixedWidthPanel(LIST_VIEW_WIDTH);
         northPanel.setLayout(new BorderLayout());
         northPanel.add(mainPanel, BorderLayout.NORTH);
 
         scrollPane = new JScrollPane(northPanel);
         scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
         add(scrollPane, BorderLayout.CENTER);
     }
 
@@ -179,16 +184,14 @@ public class MicrobotPluginListPanel extends PluginPanel {
         Predicate<Plugin> isMicrobotPlugin = plugin ->
                 plugin.getClass().getPackage().getName().toLowerCase().contains("microbot");
 
-        // Might add a different check later if needed, but for now, we consider external plugins as those
-        Predicate<Plugin> isExternalPlugin = plugin ->
-                plugin.getClass().getAnnotation(PluginDescriptor.class).isExternal();
-
         // populate pluginList with all non-hidden plugins
         pluginList = Stream.concat(
                         fakePlugins.stream(),
                         pluginManager.getPlugins().stream()
-                                .filter(plugin -> !plugin.getClass().getAnnotation(PluginDescriptor.class).hidden())
-                                .filter(isMicrobotPlugin.or(isExternalPlugin))
+                                .filter(plugin -> {
+                                    PluginDescriptor d = plugin.getClass().getAnnotation(PluginDescriptor.class);
+                                    return !d.hidden() && (isMicrobotPlugin.test(plugin) || d.isExternal());
+                                })
                                 .map(plugin ->
                                 {
                                     PluginDescriptor descriptor = plugin.getClass().getAnnotation(PluginDescriptor.class);
@@ -253,7 +256,7 @@ public class MicrobotPluginListPanel extends PluginPanel {
     private void onSearchBarChanged() {
         final String text = searchBar.getText();
         pluginList.forEach(mainPanel::remove);
-        PluginSearch.search(pluginList, text).forEach(mainPanel::add);
+        MicrobotPluginSearch.search(pluginList, text).forEach(mainPanel::add);
         revalidate();
     }
 
@@ -283,6 +286,9 @@ public class MicrobotPluginListPanel extends PluginPanel {
     }
 
     void startPlugin(Plugin plugin) {
+        microbotPluginManager.getOutdatedPluginUpdate(plugin)
+                .ifPresent(this::showOutdatedPluginNotification);
+
         pluginManager.setPluginEnabled(plugin, true);
 
         try {
@@ -310,6 +316,25 @@ public class MicrobotPluginListPanel extends PluginPanel {
         }
 
         return Text.fromCSV(config);
+    }
+
+    private void showOutdatedPluginNotification(MicrobotPluginManager.OutdatedPluginUpdate outdatedPluginUpdate) {
+        String message = "<html>\""
+                + HtmlEscapers.htmlEscaper().escape(outdatedPluginUpdate.getDisplayName())
+                + "\" is out of date.<br><br>Installed version: "
+                + HtmlEscapers.htmlEscaper().escape(outdatedPluginUpdate.getInstalledVersion())
+                + "<br>Latest version: "
+                + HtmlEscapers.htmlEscaper().escape(outdatedPluginUpdate.getLatestVersion())
+                + "<br><br>Update it from the <strong>Microbot Plugin Hub</strong> to get the latest fixes.</html>";
+
+        JOptionPane.showMessageDialog(
+                this,
+                message,
+                "Microbot Plugin Update Available",
+                JOptionPane.INFORMATION_MESSAGE
+        );
+
+        microbotPluginManager.rememberOutdatedPluginUpdateNotification(outdatedPluginUpdate);
     }
 
     void savePinnedPlugins() {

@@ -28,13 +28,13 @@ public enum NexusPortal implements PohTeleport {
     LUMBRIDGE(TeleportType.NORMAL_MAGIC, "Lumbridge", TeleportLocationData.LUMBRIDGE.getLocation()),
     FALADOR(TeleportType.NORMAL_MAGIC, "Falador", TeleportLocationData.FALADOR.getLocation()),
     CAMELOT(TeleportType.NORMAL_MAGIC, "Camelot", TeleportLocationData.CAMELOT.getLocation()),
-    KOUREND(TeleportType.NORMAL_MAGIC, "Kourend Castle", TeleportLocationData.KOUREND.getLocation()),
     ARDOUGNE(TeleportType.NORMAL_MAGIC, "Ardougne", TeleportLocationData.ARDOUGNE.getLocation()),
     WATCHTOWER(TeleportType.NORMAL_MAGIC, "Watchtower", TeleportLocationData.WATCHTOWER.getLocation()),
     MARIM(TeleportType.NORMAL_MAGIC, "Marim", TeleportLocationData.APE_ATOLL.getLocation()),
     SENNTISTEN(TeleportType.ANCIENT_MAGICKS, "Senntisten", TeleportLocationData.SENNTISTEN.getLocation()),
     KHARYRLL(TeleportType.ANCIENT_MAGICKS, "Kharyrll", TeleportLocationData.KHARYRLL.getLocation()),
     CARRALLANGER(TeleportType.ANCIENT_MAGICKS, "Carrallanger", TeleportLocationData.CARRALLANGER.getLocation()),
+    KOUREND(TeleportType.NORMAL_MAGIC, "Kourend Castle", TeleportLocationData.KOUREND.getLocation()),
     WATERBIRTH(TeleportType.LUNAR_MAGIC, "Waterbirth Island", TeleportLocationData.WATERBIRTH.getLocation()),
     ANNAKARL(TeleportType.ANCIENT_MAGICKS, "Annakarl", TeleportLocationData.ANNAKARL.getLocation()),
     GHORROCK(TeleportType.ANCIENT_MAGICKS, "Ghorrock", TeleportLocationData.GHORROCK.getLocation()),
@@ -75,7 +75,7 @@ public enum NexusPortal implements PohTeleport {
     public int varbitValue() {
         int ordinal = ordinal();
         //Since you get Varrock GE for free with Varrock, there's no varbit value for it
-        return ordinal > 2 ? ordinal : ordinal - 1;
+        return ordinal;
     }
 
 
@@ -84,7 +84,15 @@ public enum NexusPortal implements PohTeleport {
         return PohTeleports.usePortalNexus(this);
     }
 
-    public final static Integer[] PORTAL_IDS = {ObjectID.POH_NEXUS_PORTAL_1, ObjectID.POH_NEXUS_PORTAL_2, ObjectID.POH_NEXUS_PORTAL_3, ObjectID.POH_NEXUS_PORTAL_LEAGUE_5};
+    public final static Integer[] PORTAL_IDS = {
+            // Portal-style Nexus (standalone portal object)
+            ObjectID.POH_NEXUS_PORTAL_1, ObjectID.POH_NEXUS_PORTAL_2, ObjectID.POH_NEXUS_PORTAL_3, ObjectID.POH_NEXUS_PORTAL_LEAGUE_5,
+            // Teleportation Chamber variants (the Nexus that appears inside a decorated room)
+            ObjectID.POH_TELENEXUS_1, ObjectID.POH_TELENEXUS_2_MIDDLE, ObjectID.POH_TELENEXUS_2_SIDE,
+            ObjectID.POH_TELENEXUS_2_CORNER, ObjectID.POH_TELENEXUS_3,
+            // Amulet-topped Nexus variants
+            ObjectID.POH_NEXUS_4_AMULET, ObjectID.POH_NEXUS_5_AMULET
+    };
 
     public static boolean isNexusPortal(GameObject go) {
         if (go == null) return false;
@@ -151,4 +159,8 @@ public enum NexusPortal implements PohTeleport {
             VarbitID.POH_NEXUS_TELE_35,
     };
 
+    @Override
+    public String toString() {
+        return getText();
+    }
 }

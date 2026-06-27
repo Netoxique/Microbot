@@ -3,19 +3,20 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
-import net.runelite.client.plugins.microbot.pluginscheduler.util.SchedulerPluginUtil;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2AntibanSettings;
 import net.runelite.client.plugins.microbot.util.discord.Rs2Discord;
 import net.runelite.client.plugins.microbot.util.events.PluginPauseEvent;
 import net.runelite.client.plugins.microbot.util.math.Rs2Random;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
 import net.runelite.client.plugins.microbot.util.player.Rs2PlayerModel;
-import net.runelite.client.plugins.microbot.util.security.Login;
+import net.runelite.client.plugins.microbot.util.security.LoginManager;
 import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
 import net.runelite.client.plugins.microbot.util.world.Rs2WorldUtil;
 import net.runelite.client.ui.ClientUI;
+import javax.swing.SwingUtilities;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -88,10 +89,10 @@ public class BreakHandlerScript extends Script {
     }
 
     // Core break timing variables
-    public static int breakIn = -1;
-    public static int breakDuration = -1;
-    public static Duration setBreakDurationTime = Duration.ZERO;
-    public static int totalBreaks = 0;
+    public static volatile int breakIn = -1;
+    public static volatile int breakDuration = -1;
+    public static volatile Duration setBreakDurationTime = Duration.ZERO;
+    public static volatile int totalBreaks = 0;
     
     // State management - Thread-safe using atomic references
     private static final AtomicReference<BreakHandlerState> currentState = new AtomicReference<>(BreakHandlerState.WAITING_FOR_BREAK);
@@ -355,10 +356,11 @@ public class BreakHandlerScript extends Script {
         // Pause all scripts
         Microbot.pauseAllScripts.compareAndSet(false, true);
         PluginPauseEvent.setPaused(true);
-        Rs2Walker.setTarget(null);
+        Rs2Walker.clearWalkingRoute("break-handler:initiating-break");
 
         // Remember the world we were in before the break
-        preBreakWorld = Microbot.getClient().getWorld();
+        preBreakWorld = Microbot.getClientThread().runOnClientThreadOptional(
+                () -> Microbot.getClient().getWorld()).orElse(0);
 
         // Determine next state based on break type
         setBreakDuration();
@@ -383,7 +385,7 @@ public class BreakHandlerScript extends Script {
             updateBreakStatistics();
             
             // Clean shutdown of the client
-            ClientUI.getFrame().setTitle(originalWindowTitle + " - Shutting Down");
+            SwingUtilities.invokeLater(() -> ClientUI.getFrame().setTitle(originalWindowTitle + " - Shutting Down"));
             if (scheduledFuture != null && !scheduledFuture.isDone()) {
                 scheduledFuture.cancel(true);
             }
@@ -456,10 +458,8 @@ public class BreakHandlerScript extends Script {
             if (breakDuration <= 0 || config.breakEndNow()){
                 // Reset state to waiting for break if logged in unexpectedly
                 transitionToState(BreakHandlerState.BREAK_ENDING);
-            }else{
-                // If still logged in, reset break duration
-                setBreakDuration();
-                transitionToState( BreakHandlerState.LOGOUT_REQUESTED);
+            } else {
+                resetBreakState();
             }
         }
     }
@@ -469,9 +469,10 @@ public class BreakHandlerScript extends Script {
      * In micro break state (no logout), waiting for duration to complete.
      */
     private void handleLoginBreakActiveState() {
-        // Check if micro break should end
-        if ((breakDuration <= 0 && !Rs2AntibanSettings.microBreakActive) || config.breakEndNow()) {
-            log.debug("Micro break completed");
+        // Check if in-game break (micro break or no-logout break) should end
+        if (breakDuration <= 0 || config.breakEndNow()) {
+            String breakType = Rs2AntibanSettings.microBreakActive ? "Micro break" : "In-game break";
+            log.debug("{} completed", breakType);
             transitionToState(BreakHandlerState.BREAK_ENDING);
         }
     }
@@ -559,14 +560,20 @@ public class BreakHandlerScript extends Script {
         
             
             // perform login attempt
+            boolean loginInitiated;
             if (targetWorld != -1) {
                 log.info("Attempting login to selected world: {}", targetWorld);
-                new Login(targetWorld);
+                loginInitiated = LoginManager.login(targetWorld);
             } else {
                 log.info("Using default login (current world or last used)");
-                new Login();
+                loginInitiated = LoginManager.login();
             }
-            
+
+            if (!loginInitiated) {
+                log.debug("Login manager rejected new attempt (gameState: {}, attemptActive: {})",
+                    LoginManager.getGameState(), LoginManager.isLoginAttemptActive());
+            }
+
             // immediately transition to logging in state to prevent multiple login instances
             transitionToState(BreakHandlerState.LOGGING_IN);
             
@@ -781,7 +788,7 @@ public class BreakHandlerScript extends Script {
      * Resets window title to original.
      */
     private void resetWindowTitle() {
-        ClientUI.getFrame().setTitle(originalWindowTitle);
+        SwingUtilities.invokeLater(() -> ClientUI.getFrame().setTitle(originalWindowTitle));
     }
 
     /**
@@ -831,13 +838,15 @@ public class BreakHandlerScript extends Script {
      */
     private void updateWindowTitle() {
         BreakHandlerState state = currentState.get();
-        
+
         if (state == BreakHandlerState.LOGGED_OUT || state == BreakHandlerState.INGAME_BREAK_ACTIVE) {
             String breakType = state == BreakHandlerState.INGAME_BREAK_ACTIVE ? "In Game Break(Microbreak)" : "Break";
-            ClientUI.getFrame().setTitle(originalWindowTitle + " - " + breakType + ": " + 
-                                       formatDuration(Duration.ofSeconds(Math.max(0, breakDuration))));
+            String title = originalWindowTitle + " - " + breakType + ": " +
+                           formatDuration(Duration.ofSeconds(Math.max(0, breakDuration)));
+            SwingUtilities.invokeLater(() -> ClientUI.getFrame().setTitle(title));
         } else if (isBreakActive()) {
-            ClientUI.getFrame().setTitle(originalWindowTitle + " - " + state.toString().replace("_", " "));
+            String title = originalWindowTitle + " - " + state.toString().replace("_", " ");
+            SwingUtilities.invokeLater(() -> ClientUI.getFrame().setTitle(title));
         }
     }
 
@@ -896,19 +905,19 @@ public class BreakHandlerScript extends Script {
      * This includes both the manual lock state and any locked conditions from schedulable plugins.
      */
     public static boolean isLockState() {
-        return lockState.get() || SchedulerPluginUtil.hasLockedSchedulablePlugins();
+        return lockState.get();
     }
     
     /**
      * checks for ban screen during login attempt or when logged out
      */
     private void checkForBan() {
-        GameState gameState = Microbot.getClient().getGameState();
-        
-        // detect ban screen on login screen
-        boolean banDetected = gameState == GameState.LOGIN_SCREEN
-                && Microbot.getClient().getLoginIndex() == BANNED_LOGIN_INDEX;
-        
+        Optional<Integer> loginIdx = Microbot.getClientThread().runOnClientThreadOptional(
+                () -> Microbot.getClient().getGameState() == GameState.LOGIN_SCREEN
+                        ? Microbot.getClient().getLoginIndex()
+                        : -1);
+        boolean banDetected = loginIdx.orElse(-1) == BANNED_LOGIN_INDEX;
+
         if (banDetected && !isBanned) {
             isBanned = true;
             handleBanDetection();

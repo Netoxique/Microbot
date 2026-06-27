@@ -1,6 +1,7 @@
 package net.runelite.client.plugins.microbot;
 
 import com.google.inject.Injector;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -32,21 +33,29 @@ import net.runelite.client.input.MouseManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginInstantiationException;
 import net.runelite.client.plugins.PluginManager;
-import net.runelite.client.plugins.loottracker.LootTrackerItem;
-import net.runelite.client.plugins.loottracker.LootTrackerPlugin;
 import net.runelite.client.plugins.loottracker.LootTrackerRecord;
 import net.runelite.client.plugins.microbot.configs.SpecialAttackConfigs;
-import net.runelite.client.plugins.microbot.qualityoflife.scripts.pouch.PouchScript;
-import net.runelite.client.plugins.microbot.util.cache.Rs2VarPlayerCache;
-import net.runelite.client.plugins.microbot.util.cache.Rs2VarbitCache;
+import net.runelite.client.plugins.microbot.pouch.PouchScript;
+import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
+import net.runelite.client.plugins.microbot.util.combat.Rs2Combat;
+import net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2ItemModel;
+import net.runelite.client.plugins.microbot.util.shop.Rs2Shop;
 import net.runelite.client.plugins.microbot.util.item.Rs2ItemManager;
+import net.runelite.client.plugins.microbot.util.math.Rs2Random;
 import net.runelite.client.plugins.microbot.util.menu.NewMenuEntry;
 import net.runelite.client.plugins.microbot.util.misc.Rs2UiHelper;
 import net.runelite.client.plugins.microbot.util.mouse.Mouse;
 import net.runelite.client.plugins.microbot.util.mouse.VirtualMouse;
 import net.runelite.client.plugins.microbot.util.mouse.naturalmouse.NaturalMouse;
-import net.runelite.client.plugins.microbot.util.player.Rs2PlayerCache;
+import net.runelite.client.plugins.microbot.api.boat.Rs2BoatCache;
+import net.runelite.client.plugins.microbot.util.GameTickBroadcaster;
+import net.runelite.client.plugins.microbot.api.npc.Rs2NpcCache;
+import net.runelite.client.plugins.microbot.api.player.Rs2PlayerCache;
+import net.runelite.client.plugins.microbot.api.playerstate.Rs2PlayerStateCache;
+import net.runelite.client.plugins.microbot.api.tileitem.Rs2TileItemCache;
+import net.runelite.client.plugins.microbot.api.tileobject.Rs2TileObjectCache;
+import net.runelite.client.plugins.microbot.util.security.LoginManager;
 import net.runelite.client.plugins.microbot.util.widget.Rs2Widget;
 import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
 import net.runelite.client.ui.overlay.tooltip.TooltipManager;
@@ -67,13 +76,9 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -187,35 +192,45 @@ public class Microbot {
     private static final BlockingEventManager blockingEventManager = new BlockingEventManager();
 
     @Getter
-    private static HashMap<String, Integer> scriptRuntimes = new HashMap<>();
-
-    @Getter
     private static Rs2ItemManager rs2ItemManager = new Rs2ItemManager();
 
-    public static boolean loggedIn = false;
-
-    @Setter
-    private static Instant loginTime;
-
-    @Setter
+    @Inject
     @Getter
-    public static boolean isRs2CacheEnabled = false;
+    private static Rs2PlayerStateCache rs2PlayerStateCache;
+
+    @Inject
+    @Getter
+    private static Rs2NpcCache rs2NpcCache;
 
     @Inject
     @Getter
     private static Rs2PlayerCache rs2PlayerCache;
 
+    @Inject
+    @Getter
+    private static Rs2TileItemCache rs2TileItemCache;
+
+    @Inject
+    @Getter
+    private static Rs2TileObjectCache rs2TileObjectCache;
+
+    @Inject
+    @Getter
+    private static Rs2BoatCache rs2BoatCache;
+
+    @Inject
+    @Getter
+    private static GameTickBroadcaster gameTickBroadcaster;
+
+    @Getter
+    private static final Set<Integer> worldViewIds = ConcurrentHashMap.newKeySet();
     /**
      * Get the total runtime of the script
      *
      * @return the {@link Duration} the account has been logged in
      */
     public static Duration getLoginTime() {
-        if (loginTime == null) {
-            return Duration.of(0, ChronoUnit.MILLIS);
-        }
-
-        return Duration.between(loginTime, Instant.now());
+        return LoginManager.getLoginDuration();
     }
 
     /**
@@ -231,18 +246,62 @@ public class Microbot {
                 getInputArguments().toString().contains("-agentlib:jdwp");
     }
 
-    public static int getVarbitValue(@Varbit int varbit) {
-        if (isRs2CacheEnabled()) {
-            return Rs2VarbitCache.getVarbitValue(varbit);
+    public static boolean isTelemetryDisabled() {
+        if (Boolean.getBoolean("microbot.disableTelemetry")) {
+            return true;
         }
-        return rs2PlayerCache.getVarbitValue(varbit);
+        try {
+            net.runelite.client.config.ConfigManager cm = configManager;
+            if (cm == null) return false;
+            String value = cm.getConfiguration(MicrobotConfig.configGroup, MicrobotConfig.keyDisableTelemetry);
+            return Boolean.parseBoolean(value);
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private static final String INSTALL_SEED_KEY = "installSeed";
+    private static volatile Long cachedInstallSeed = null;
+
+    public static long getInstallSeed() {
+        Long cached = cachedInstallSeed;
+        if (cached != null) return cached;
+        synchronized (Microbot.class) {
+            if (cachedInstallSeed != null) return cachedInstallSeed;
+            long seed = 0L;
+            try {
+                net.runelite.client.config.ConfigManager cm = configManager;
+                if (cm != null) {
+                    String stored = cm.getConfiguration(MicrobotConfig.configGroup, INSTALL_SEED_KEY);
+                    if (stored != null && !stored.isEmpty()) {
+                        try {
+                            seed = Long.parseLong(stored);
+                        } catch (NumberFormatException ignored) {
+                        }
+                    }
+                    if (seed == 0L) {
+                        seed = new java.security.SecureRandom().nextLong();
+                        if (seed == 0L) seed = 1L;
+                        cm.setConfiguration(MicrobotConfig.configGroup, INSTALL_SEED_KEY, Long.toString(seed));
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            if (seed == 0L) {
+                seed = new java.security.SecureRandom().nextLong();
+                if (seed == 0L) seed = 1L;
+            }
+            cachedInstallSeed = seed;
+            return seed;
+        }
+    }
+
+    public static int getVarbitValue(@Varbit int varbit) {
+        return rs2PlayerStateCache.getVarbitValue(varbit);
     }
 
     public static int getVarbitPlayerValue(@Varp int varpId) {
-        if (isRs2CacheEnabled()) {
-            return Rs2VarPlayerCache.getVarPlayerValue(varpId);
-        }
-        return rs2PlayerCache.getVarpValue(varpId);
+        return rs2PlayerStateCache.getVarpValue(varpId);
     }
 
     public static EnumComposition getEnum(int id) {
@@ -280,15 +339,7 @@ public class Microbot {
     }
 
     public static boolean isLoggedIn() {
-        if (loggedIn) {
-            return true;
-        }
-        if (client == null) {
-            return false;
-        }
-        GameState idx = client.getGameState();
-        loggedIn = idx == GameState.LOGGED_IN && Rs2Widget.isWidgetVisible(REPORT_BUTTON_COMPONENT_ID);
-        return loggedIn;
+        return LoginManager.isLoggedIn();
     }
 
     public static boolean isHopping() {
@@ -299,6 +350,10 @@ public class Microbot {
         return idx == GameState.HOPPING;
     }
 
+    /**
+     * Attempts to hop to the specified world, handling confirmation dialogs and guarding against unsafe states
+     * (interacting player, existing hop, invalid world). Returns {@code true} if a hop is initiated.
+     */
     public static boolean hopToWorld(int worldNumber) {
         if (!Microbot.isLoggedIn()) {
             return false;
@@ -311,9 +366,13 @@ public class Microbot {
             log.error("Can't hop world, already trying to hop");
             return false;
         }
-        boolean isHopping = Microbot.getClientThread().runOnClientThreadOptional(() -> {
-            if (Microbot.getClient().getLocalPlayer() != null && Microbot.getClient().getLocalPlayer().isInteracting()) {
-                log.error("Local player is interacting, cannot hop worlds");
+        boolean hopIssued = Microbot.getClientThread().runOnClientThreadOptional(() -> {
+            if (Rs2Combat.inCombat()) {
+                log.error("Player is in combat, cannot hop worlds");
+                return false;
+            }
+            if (Rs2Bank.isOpen() || Rs2Shop.isOpen() || Rs2Dialogue.isInDialogue()) {
+                log.error("Blocking widget open (bank/shop/dialogue), cannot hop worlds");
                 return false;
             }
             if (quickHopTargetWorld != null || Microbot.getClient().getGameState() != GameState.LOGGED_IN) {
@@ -321,7 +380,7 @@ public class Microbot {
                 return false;
             }
             if (Microbot.getClient().getWorld() == worldNumber) {
-                return false;
+                return true;
             }
             World newWorld = Microbot.getWorldService().getWorlds().findWorld(worldNumber);
             if (newWorld == null) {
@@ -343,29 +402,46 @@ public class Microbot {
             Microbot.getClient().openWorldHopper();
             Microbot.getClient().hopToWorld(rsWorld);
             quickHopTargetWorld = null;
-            sleep(600);
-            sleepUntil(() -> Microbot.isHopping() || Rs2Widget.getWidget(193, 0) != null, 2000);
-            return Microbot.isHopping();
+            return true;
         }).orElse(false);
-        if (!isHopping) {
+        if (!hopIssued) {
+            log.error("Failed to hop to world {}", worldNumber);
+            return false;
+        }
+        // Wait off the client thread so sleeps actually block. The lambda above runs on
+        // the client thread, where Global.sleep / sleepUntil early-return — so any post-hop
+        // wait inside it is a no-op and the success check fires before the server has
+        // even processed the request. That's the source of "Failed to hop" spam.
+        if (Microbot.getClient().getWorld() != worldNumber) {
+            sleep(600);
+            sleepUntil(() -> Microbot.isHopping()
+                            || Microbot.getClient().getWorld() == worldNumber
+                            || Rs2Widget.getWidget(193, 0) != null, 5000);
+        }
+        boolean hopping = Microbot.isHopping() || Microbot.getClient().getWorld() == worldNumber;
+        if (!hopping) {
             Widget confirmRoot = Rs2Widget.getWidget(193, 0);
             if (confirmRoot != null) {
                 List<Widget> children = Arrays.stream(confirmRoot.getDynamicChildren()).collect(Collectors.toList());
                 Widget switchWorldWidget =
                         sleepUntilNotNull(() -> Rs2Widget.findWidget("Switch world", children, true), 2000);
-                if (switchWorldWidget != null) {
-                    boolean clicked = Rs2Widget.clickWidget(switchWorldWidget);
-                    if (clicked) {
-                        sleepUntil(Microbot::isHopping, 4000);
-                        return Microbot.isHopping();
-                    }
+                if (switchWorldWidget != null && Rs2Widget.clickWidget(switchWorldWidget)) {
+                    sleepUntil(() -> Microbot.isHopping()
+                                    || Microbot.getClient().getWorld() == worldNumber, 4000);
+                    hopping = Microbot.isHopping() || Microbot.getClient().getWorld() == worldNumber;
                 }
             }
         }
-        if (!isHopping) {
+        if (hopping) {
+            // Block until the hop fully lands so callers don't race against HOPPING/LOGIN_SCREEN.
+            sleepUntil(() -> Microbot.getClient().getWorld() == worldNumber
+                            && Microbot.getClient().getGameState() == GameState.LOGGED_IN, 15000);
+        }
+        boolean success = Microbot.getClient().getWorld() == worldNumber;
+        if (!success) {
             log.error("Failed to hop to world {}", worldNumber);
         }
-        return false;
+        return success;
     }
 
     public static void showMessage(String message) {
@@ -541,7 +617,7 @@ public class Microbot {
         Point endPoint = Rs2UiHelper.getClickingPoint(end, true);
         mouse.drag(startPoint, endPoint);
         if (!Microbot.getClient().isClientThread()) {
-            sleep(50, 80);
+            sleep(Rs2Random.logNormalBounded(50, 80));
         }
     }
 
@@ -554,7 +630,7 @@ public class Microbot {
         }
 
         if (!Microbot.getClient().isClientThread()) {
-            sleep(50, 100);
+            sleep(Rs2Random.logNormalBounded(50, 100));
         }
     }
 
@@ -565,20 +641,18 @@ public class Microbot {
 
 
         if (!Microbot.getClient().isClientThread()) {
-            sleep(50, 80);
+            sleep(Rs2Random.logNormalBounded(50, 80));
         }
     }
 
+    @Deprecated(since = "Use LootTrackerPlugin.getAggregateLootRecords()", forRemoval = true)
     public static List<LootTrackerRecord> getAggregateLootRecords() {
-        return LootTrackerPlugin.panel.aggregateRecords;
+        return new ArrayList<>();
     }
 
+    @Deprecated(since = "Use LootTrackerPlugin.getAggregateLootRecords()", forRemoval = true)
     public static LootTrackerRecord getAggregateLootRecords(String npcName) {
-        return getAggregateLootRecords()
-                .stream()
-                .filter(x -> x.getTitle().equalsIgnoreCase(npcName))
-                .findFirst()
-                .orElse(null);
+        return null;
     }
 
     /**
@@ -588,24 +662,9 @@ public class Microbot {
      * @param npcName name of the npc to get the loot records for
      * @return total GE value of the loot records
      */
+    @Deprecated(since = "Use LootTrackerPlugin.getAggregateLootRecords()", forRemoval = true)
     public static long getAggregateLootRecordsTotalGevalue(String npcName) {
-        LootTrackerRecord record = getAggregateLootRecords(npcName);
-        if (record == null) {
-            return 0;
-        }
-
-        long totalGeValue = 0;
-        try {
-            LootTrackerItem[] items = record.getItems();
-            for (LootTrackerItem item : items) {
-                ;
-                totalGeValue += item.getTotalGePrice();
-            }
-        } catch (Exception e) {
-            log.error("Error calculating total GE value", e);
-        }
-
-        return totalGeValue;
+        return 0;
     }
 
     /**
@@ -719,11 +778,6 @@ public class Microbot {
         return isPluginEnabled(getPlugin(name));
     }
 
-    @Deprecated(since = "1.6.2 - Use Rs2Player variant")
-    public static QuestState getQuestState(Quest quest) {
-        return getClientThread().runOnClientThreadOptional(() -> quest.getState(client)).orElse(null);
-    }
-
     public static void writeVersionToFile(String version) throws IOException {
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(VERSION_FILE_PATH))) {
             writer.write(version);
@@ -835,4 +889,3 @@ public class Microbot {
                 .collect(Collectors.toList());
     }
 }
-

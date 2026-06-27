@@ -15,6 +15,8 @@ import net.runelite.client.plugins.microbot.util.widget.Rs2Widget;
 
 import java.awt.*;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static net.runelite.client.plugins.microbot.util.Global.sleepUntil;
@@ -82,18 +84,18 @@ public class Rs2Prayer {
 	 * @param withMouse true to use mouse clicks with prayer bounds
 	 */
 	private static void invokePrayer(Rs2PrayerEnum prayer, boolean withMouse) {
-		NewMenuEntry menuEntry = new NewMenuEntry(
-			-1,
-			prayer.getIndex(),
-			MenuAction.CC_OP.getId(),
-			1,
-			-1,
-			"Activate"
-		);
+		NewMenuEntry menuEntry = new NewMenuEntry()
+				.param0(-1)
+				.param1(prayer.getIndex())
+				.opcode(MenuAction.CC_OP.getId())
+				.identifier(1)
+				.itemId(-1)
+				.option("Activate");
 
 		Rectangle prayerBounds = withMouse ? getPrayerBounds(prayer) : Rs2UiHelper.getDefaultRectangle();
 
-		Microbot.doInvoke(menuEntry, prayerBounds);
+        Microbot.doInvoke(menuEntry, prayerBounds);
+        // Microbot.getClient().menuAction(-1, prayer.getIndex(), MenuAction.CC_OP, 1, -1, "Activate", "Activate");
 	}
 
 	/**
@@ -164,16 +166,50 @@ public class Rs2Prayer {
         if (Rs2Widget.isHidden(QUICK_PRAYER_ORB_COMPONENT_ID)) return false;
 
         // Open the menu
-        Microbot.doInvoke(new NewMenuEntry("Setup",-1, QUICK_PRAYER_ORB_COMPONENT_ID, MenuAction.CC_OP.getId(), 2, -1, "Quick-prayers"), new Rectangle(1, 1, Microbot.getClient().getCanvasWidth(), Microbot.getClient().getCanvasHeight()));
+        Microbot.doInvoke(new NewMenuEntry()
+                .option("Setup")
+                .param0(-1)
+                .param1(QUICK_PRAYER_ORB_COMPONENT_ID)
+                .opcode(MenuAction.CC_OP.getId())
+                .identifier(2)
+                .itemId(-1)
+                .target("Quick-prayers"), new Rectangle(1, 1, Microbot.getClient().getCanvasWidth(), Microbot.getClient().getCanvasHeight()));
 
         sleepUntil(() -> !Rs2Widget.isHidden(QUICK_PRAYER_SELECT_COMPONENT_ID));
 
-        for (Rs2PrayerEnum prayer : prayers) {
-            if(isQuickPrayerSet(prayer)) continue;
-            Microbot.doInvoke(new NewMenuEntry(prayer.getName(),prayer.getQuickPrayerIndex(), QUICK_PRAYER_SELECT_COMPONENT_ID, MenuAction.CC_OP.getId(), 1, -1, "Toggle"), new Rectangle(1, 1, Microbot.getClient().getCanvasWidth(), Microbot.getClient().getCanvasHeight()));
+        for (Rs2PrayerEnum existing : Rs2PrayerEnum.values()) {
+            if (isQuickPrayerSet(existing) && !Arrays.asList(prayers).contains(existing)) {
+                Microbot.doInvoke(new NewMenuEntry()
+                        .option(existing.getName())
+                        .param0(existing.getQuickPrayerIndex())
+                        .param1(QUICK_PRAYER_SELECT_COMPONENT_ID)
+                        .opcode(MenuAction.CC_OP.getId())
+                        .identifier(1)
+                        .itemId(-1)
+                        .target("Toggle"), new Rectangle(1, 1, Microbot.getClient().getCanvasWidth(), Microbot.getClient().getCanvasHeight()));
+            }
         }
 
-        Microbot.doInvoke(new NewMenuEntry("Done",-1, QUICK_PRAYER_DONE_BUTTON_COMPONENT_ID, MenuAction.CC_OP.getId(), 1, -1, ""), new Rectangle(1, 1, Microbot.getClient().getCanvasWidth(), Microbot.getClient().getCanvasHeight()));
+        for (Rs2PrayerEnum prayer : prayers) {
+            if(isQuickPrayerSet(prayer)) continue;
+            Microbot.doInvoke(new NewMenuEntry()
+                    .option(prayer.getName())
+                    .param0(prayer.getQuickPrayerIndex())
+                    .param1(QUICK_PRAYER_SELECT_COMPONENT_ID)
+                    .opcode(MenuAction.CC_OP.getId())
+                    .identifier(1)
+                    .itemId(-1)
+                    .target("Toggle"), new Rectangle(1, 1, Microbot.getClient().getCanvasWidth(), Microbot.getClient().getCanvasHeight()));
+        }
+
+        Microbot.doInvoke(new NewMenuEntry()
+                .option("Done")
+                .param0(-1)
+                .param1(QUICK_PRAYER_DONE_BUTTON_COMPONENT_ID)
+                .opcode(MenuAction.CC_OP.getId())
+                .identifier(1)
+                .itemId(-1)
+                .target(""), new Rectangle(1, 1, Microbot.getClient().getCanvasWidth(), Microbot.getClient().getCanvasHeight()));
         return true;
     }
 
@@ -223,14 +259,13 @@ public class Rs2Prayer {
 	 * @param withMouse true to use mouse with orb bounds
 	 */
 	private static void invokeQuickPrayer(boolean withMouse) {
-		NewMenuEntry entry = new NewMenuEntry(
-			-1,
-			QUICK_PRAYER_ORB_COMPONENT_ID,
-			MenuAction.CC_OP.getId(),
-			1,
-			-1,
-			"Quick-prayers"
-		);
+		NewMenuEntry entry = new NewMenuEntry()
+				.param0(-1)
+				.param1(QUICK_PRAYER_ORB_COMPONENT_ID)
+				.opcode(MenuAction.CC_OP.getId())
+				.identifier(1)
+				.itemId(-1)
+				.option("Quick-prayers");
 
 		Microbot.doInvoke(entry, withMouse ? getQuickPrayerOrbBounds() : Rs2UiHelper.getDefaultRectangle());
 	}
@@ -285,6 +320,10 @@ public class Rs2Prayer {
             .forEach(prayer -> Rs2Prayer.toggle(prayer, false, withMouse));
     }
 
+    public static int getPrayerPoints() {
+        return Microbot.getClient().getBoostedSkillLevel(Skill.PRAYER);
+    }
+
     /**
      * Disables all active prayers except the ones specified in the array.
      * @param prayersToKeep array of prayers to keep active
@@ -299,9 +338,10 @@ public class Rs2Prayer {
      * @param withMouse whether to use mouse clicks for disabling prayers
      */
     public static void disableAllPrayersExcept(Rs2PrayerEnum[] prayersToKeep, boolean withMouse) {
+        Set<Rs2PrayerEnum> keepSet = new HashSet<>(Arrays.asList(prayersToKeep));
         Arrays.stream(Rs2PrayerEnum.values())
             .filter(Rs2Prayer::isPrayerActive)
-            .filter(prayer -> !Arrays.asList(prayersToKeep).contains(prayer))
+            .filter(prayer -> !keepSet.contains(prayer))
             .forEach(prayer -> Rs2Prayer.toggle(prayer, false, withMouse));
     }
 
@@ -376,6 +416,8 @@ public class Rs2Prayer {
 
         if (auguryUnlocked && prayerLevel >= Rs2PrayerEnum.AUGURY.getLevel())
             return Rs2PrayerEnum.AUGURY;
+        if (isMysticVigourUnlocked() && prayerLevel >= Rs2PrayerEnum.MYSTIC_VIGOUR.getLevel())
+            return Rs2PrayerEnum.MYSTIC_VIGOUR;
         if (prayerLevel >= Rs2PrayerEnum.MYSTIC_MIGHT.getLevel())
             return Rs2PrayerEnum.MYSTIC_MIGHT;
         if (prayerLevel >= Rs2PrayerEnum.MYSTIC_LORE.getLevel())
@@ -392,6 +434,8 @@ public class Rs2Prayer {
 
         if (rigourUnlocked && prayerLevel >= Rs2PrayerEnum.RIGOUR.getLevel())
             return Rs2PrayerEnum.RIGOUR;
+        if (isDeadeyeUnlocked() && prayerLevel >= Rs2PrayerEnum.DEAD_EYE.getLevel())
+            return Rs2PrayerEnum.DEAD_EYE;
         if (prayerLevel >= Rs2PrayerEnum.EAGLE_EYE.getLevel())
             return Rs2PrayerEnum.EAGLE_EYE;
         if (prayerLevel >= Rs2PrayerEnum.HAWK_EYE.getLevel())

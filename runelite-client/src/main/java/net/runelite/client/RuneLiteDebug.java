@@ -35,7 +35,6 @@ import joptsimple.*;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
-import net.runelite.api.Constants;
 import net.runelite.client.account.SessionManager;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.discord.DiscordService;
@@ -55,6 +54,7 @@ import net.runelite.client.ui.overlay.tooltip.TooltipOverlay;
 import net.runelite.client.ui.overlay.worldmap.WorldMapOverlay;
 import net.runelite.client.util.OSType;
 import net.runelite.client.util.ReflectUtil;
+import net.runelite.client.util.CrashReportFormatter;
 import net.runelite.http.api.RuneLiteAPI;
 import okhttp3.Cache;
 import okhttp3.OkHttpClient;
@@ -70,7 +70,6 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 import javax.swing.*;
-import java.applet.Applet;
 import java.io.File;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
@@ -228,11 +227,12 @@ public class RuneLiteDebug {
                 System.exit(1);
             }
 
-            ClientUI.proxyMessage = " - Proxy enabled (detected IP " + ip + ")";
+            ClientUI.proxyMessage = "Proxy enabled (IP " + ip + ")";
         }
 
         SplashScreen.stage(0, "Retrieving client", "");
 
+        boolean startupFailed = false;
         try {
             final RuntimeConfigLoader runtimeConfigLoader = new RuntimeConfigLoader(okHttpClient);
             final MicrobotClientLoader microbotClientLoader = new MicrobotClientLoader(okHttpClient, runtimeConfigLoader, (String) options.valueOf("jav_config"));
@@ -293,13 +293,29 @@ public class RuneLiteDebug {
             //This is done for a faster development cycle
 
         } catch (Exception e) {
+            startupFailed = true;
             log.error("Failure during startup", e);
+            final String crashSummary = CrashReportFormatter.summarize(e);
+            final String crashDetails = CrashReportFormatter.buildReport(e);
             SwingUtilities.invokeLater(() ->
-                    new FatalErrorDialog("RuneLite has encountered an unexpected error during startup.")
-                            .addHelpButtons()
-                            .open());
+                    {
+                        if (SplashScreen.isOpen())
+                        {
+                                SplashScreen.showError("RuneLite failed to start", crashSummary, crashDetails);
+                        }
+                        else
+                        {
+                                new FatalErrorDialog("RuneLite has encountered an unexpected error during startup.")
+                                        .setContent(crashDetails)
+                                        .addCopyButton("Copy error details")
+                                        .addHelpButtons()
+                                        .open();
+                        }
+                    });
         } finally {
-            SplashScreen.stop();
+            if (!startupFailed) {
+                SplashScreen.stop();
+            }
         }
     }
 
@@ -313,17 +329,18 @@ public class RuneLiteDebug {
         }
 
         setupSystemProps();
-        
-        // Start the applet
+
+        // Start the client
         copyJagexCache();
-        var applet = (Applet) client;
-        applet.setSize(Constants.GAME_FIXED_SIZE);
 
         System.setProperty("jagex.disableBouncyCastle", "true");
         System.setProperty("jagex.userhome", RUNELITE_DIR.getAbsolutePath());
 
-        applet.init();
-        applet.start();
+        if (isOutdated) {
+            throw new IllegalStateException("Client failed to load");
+        }
+
+        client.initialize();
         
         SplashScreen.stage(.57, null, "Loading configuration");
 
@@ -381,6 +398,8 @@ public class RuneLiteDebug {
         microbotPluginManager.loadCorePlugins(pluginsToDebug);
 
         pluginManager.startPlugins();
+
+        client.unblockStartup();
 
         if (telemetryClient != null) {
             telemetryClient.submitTelemetry();

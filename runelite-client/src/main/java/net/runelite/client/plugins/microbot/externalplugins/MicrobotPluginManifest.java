@@ -27,11 +27,23 @@ package net.runelite.client.plugins.microbot.externalplugins;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+
 /**
  * Represents a plugin in the Microbot Plugin Hub
  */
 @Data
 public class MicrobotPluginManifest {
+    private static final int NEWLY_ADDED_DAYS = 30;
+
     /**
      * Unique identifier for the plugin
      */
@@ -59,6 +71,21 @@ public class MicrobotPluginManifest {
     private String version;
 
     /**
+     * Optional artifact identifier; defaults to {@link #internalName} when missing.
+     */
+    private String artifactId;
+
+    /**
+     * Optional fully qualified download URL overriding the default GitHub release pattern.
+     */
+    private String downloadUrl;
+
+    /**
+     * Optional GitHub release tag to use when building download URLs; falls back to "v" + version.
+     */
+    private String releaseTag;
+
+    /**
      * Minimum client version required for this plugin
      */
     private String minClientVersion;
@@ -83,16 +110,27 @@ public class MicrobotPluginManifest {
      */
     private String cardUrl;
 
-	/**
-	 * Flag indicating the plugin is disabled. (optional)
-	 * This is used for plugins that are no longer functional or have been deprecated.
-	 */
-	private boolean disable;
+    /**
+     * Flag indicating the plugin is disabled. (optional)
+     * This is used for plugins that are no longer functional or have been deprecated.
+     */
+    private boolean disable;
 
-	/**
+    /**
      * Tags for the plugin (optional)
      */
     private String[] tags;
+
+    /**
+     * Timestamp for when this plugin was added to the hub.
+     */
+    @SerializedName(value = "addedAt", alternate = {"dateAdded", "createdAt", "created_at", "publishedAt", "published_at"})
+    private String addedAt;
+
+    /**
+     * Complete version list pulled from the Microbot Nexus repository.
+     */
+    private List<String> availableVersions = Collections.emptyList();
 
     /**
      * Gets a warning message for this plugin, if any
@@ -126,5 +164,42 @@ public class MicrobotPluginManifest {
             return authors[0];
         }
         return String.join(", ", authors);
+    }
+
+    /**
+     * Ensures callers always receive an immutable list of versions.
+     */
+    public List<String> getAvailableVersions() {
+        return availableVersions == null ? Collections.emptyList() : availableVersions;
+    }
+
+    public void setAvailableVersions(List<String> versions) {
+        if (versions == null || versions.isEmpty()) {
+            this.availableVersions = Collections.emptyList();
+            return;
+        }
+        this.availableVersions = Collections.unmodifiableList(new ArrayList<>(versions));
+    }
+
+    public boolean isNewlyAdded() {
+        return getAddedInstant()
+            .map(added -> added.isAfter(Instant.now().minus(NEWLY_ADDED_DAYS, ChronoUnit.DAYS)))
+            .orElse(false);
+    }
+
+    public Optional<Instant> getAddedInstant() {
+        if (addedAt == null || addedAt.isBlank()) {
+            return Optional.empty();
+        }
+
+        try {
+            return Optional.of(Instant.parse(addedAt));
+        } catch (DateTimeParseException ignored) {
+            try {
+                return Optional.of(LocalDate.parse(addedAt).atStartOfDay().toInstant(ZoneOffset.UTC));
+            } catch (DateTimeParseException ignoredAgain) {
+                return Optional.empty();
+            }
+        }
     }
 }

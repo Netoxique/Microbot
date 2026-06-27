@@ -1,7 +1,7 @@
 package net.runelite.client.plugins.microbot.util.inventory;
 
-import net.runelite.api.*;
 import net.runelite.api.Point;
+import net.runelite.api.*;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
@@ -9,7 +9,7 @@ import net.runelite.api.widgets.ComponentID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
-import net.runelite.client.plugins.microbot.qualityoflife.scripts.pouch.Pouch;
+import net.runelite.client.plugins.microbot.pouch.Pouch;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2AntibanSettings;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
@@ -31,13 +31,14 @@ import org.apache.commons.lang3.NotImplementedException;
 import org.slf4j.event.Level;
 
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static net.runelite.client.plugins.microbot.Microbot.log;
@@ -50,7 +51,7 @@ public class Rs2Inventory {
     private static final int CAPACITY = COLUMNS * ROWS;
     private static final String[] EMPTY_ARRAY = new String[0];
 
-    private static List<Rs2ItemModel> inventoryItems = Collections.emptyList();
+    private static volatile List<Rs2ItemModel> inventoryItems = Collections.emptyList();
 
     public static ItemContainer inventory() {
         return Microbot.getClient().getItemContainer(InventoryID.INV);
@@ -74,6 +75,21 @@ public class Rs2Inventory {
     }
 
     public static Stream<Rs2ItemModel> items() {
+        if (inventoryItems.isEmpty() && Microbot.isLoggedIn()) {
+            Microbot.getClientThread().runOnClientThreadOptional(() -> {
+                final ItemContainer itemContainer = Microbot.getClient().getItemContainer(InventoryID.INV);
+                if (itemContainer == null) return null;
+                List<Rs2ItemModel> _inventoryItems = new ArrayList<>();
+                for (int i = 0; i < itemContainer.getItems().length; i++) {
+                    final Item item = itemContainer.getItems()[i];
+                    if (item.getId() == -1) continue;
+                    final ItemComposition itemComposition = Microbot.getClient().getItemDefinition(item.getId());
+                    _inventoryItems.add(new Rs2ItemModel(item, itemComposition, i));
+                }
+                inventoryItems = Collections.unmodifiableList(_inventoryItems);
+                return null;
+            });
+        }
         return inventoryItems.stream();
     }
 
@@ -306,7 +322,8 @@ public class Rs2Inventory {
      * @return True if the inventory contains all the specified IDs, false otherwise.
      */
     public static boolean containsAll(int... ids) {
-        return Arrays.stream(ids).allMatch(Rs2Inventory::contains);
+        Set<Integer> present = inventoryItems.stream().map(Rs2ItemModel::getId).collect(Collectors.toSet());
+        return Arrays.stream(ids).allMatch(present::contains);
     }
 
     /**
@@ -317,7 +334,12 @@ public class Rs2Inventory {
      * @return True if the inventory contains all the specified names, false otherwise.
      */
     public static boolean containsAll(String... names) {
-        return Arrays.stream(names).allMatch(Rs2Inventory::contains);
+        Set<String> present = inventoryItems.stream()
+                .map(Rs2ItemModel::getName)
+                .filter(Objects::nonNull)
+                .map(String::toLowerCase)
+                .collect(Collectors.toSet());
+        return Arrays.stream(names).allMatch(name -> present.contains(name.toLowerCase()));
     }
 
     /**
@@ -442,7 +464,7 @@ public class Rs2Inventory {
     public static boolean dropAll(Predicate<Rs2ItemModel> predicate) {
         items(predicate).forEachOrdered(item -> {
             drop(item);
-            if (!Rs2AntibanSettings.naturalMouse) sleep(150, 300);
+            sleep(150, 300);
         });
         return true;
     }
@@ -495,8 +517,7 @@ public class Rs2Inventory {
         for (Rs2ItemModel item : itemsToDrop) {
             if (item == null) continue;
             invokeMenu(item, "Drop");
-            if (!Rs2AntibanSettings.naturalMouse)
-                sleep(150, 300);
+            sleep(150, 300);
         }
         return true;
     }
@@ -603,11 +624,10 @@ public class Rs2Inventory {
             
             invokeMenu(item, "Drop");
             droppedCount++;
-            
-            if (!Rs2AntibanSettings.naturalMouse)
-                sleep(150, 300);
+
+            sleep(150, 300);
         }
-        
+
         return droppedCount;
     }
 
@@ -637,11 +657,10 @@ public class Rs2Inventory {
             
             invokeMenu(item, "Drop");
             droppedCount++;
-            
-            if (!Rs2AntibanSettings.naturalMouse)
-                sleep(150, 300);
+
+            sleep(150, 300);
         }
-        
+
         return droppedCount;
     }
 
@@ -666,8 +685,15 @@ public class Rs2Inventory {
      */
     public static boolean dropAllExcept(int gpValue, String[] ignoreItems) {
         final Predicate<Rs2ItemModel> ignore = item -> Arrays.stream(ignoreItems).anyMatch(x -> x.equalsIgnoreCase(item.getName()));
-        final Predicate<Rs2ItemModel> price = item -> (long) Microbot.getClientThread().runOnClientThreadOptional(() ->
-                Microbot.getItemManager().getItemPrice(item.getId()) * item.getQuantity()).orElse(0) >= gpValue;
+        final List<Rs2ItemModel> inventorySnapshot = items().collect(Collectors.toList());
+        final Map<Integer, Long> priceMap = Microbot.getClientThread().runOnClientThreadOptional(() -> {
+            Map<Integer, Long> map = new HashMap<>();
+            for (Rs2ItemModel item : inventorySnapshot) {
+                map.put(item.getSlot(), (long) Microbot.getItemManager().getItemPrice(item.getId()) * item.getQuantity());
+            }
+            return map;
+        }).orElse(Collections.emptyMap());
+        final Predicate<Rs2ItemModel> price = item -> priceMap.getOrDefault(item.getSlot(), 0L) >= gpValue;
         return dropAllExcept(ignore.or(price));
     }
 
@@ -708,8 +734,7 @@ public class Rs2Inventory {
      * @return The last item that matches the ID, or null if not found.
      */
     public static Rs2ItemModel getLast(int id) {
-        final Rs2ItemModel[] items = items(item -> item.getId() == id).toArray(Rs2ItemModel[]::new);
-        return items.length == 0 ? null : items[items.length-1];
+        return items(item -> item.getId() == id).reduce((a, b) -> b).orElse(null);
     }
 
     /**
@@ -1033,12 +1058,7 @@ public class Rs2Inventory {
      * @return The index of the first empty slot, or -1 if none are found.
      */
     public static int getFirstEmptySlot() {
-        // TODO: might be broken
-        if (isFull()) return -1;
-        for (int i = 0; i < inventory().getItems().length; i++) {
-            if (inventory().getItems()[i].getId() == -1) return i;
-        }
-        return -1;
+        return IntStream.range(0, CAPACITY).filter(i -> inventoryItems.stream().noneMatch(x -> x.getSlot() == i)).findFirst().orElse(-1);
     }
 
     /**
@@ -1205,20 +1225,6 @@ public class Rs2Inventory {
      */
     public static boolean interact(int id, String action) {
         return interact(get(id), action);
-    }
-    /**
-     * Interacts with an item with the specified ID in the inventory using the specified action.
-     *
-     * @param id     The ID of the item to interact with.
-     * @param action The action to perform on the item.
-     *
-     * @return True if the interaction was successful, false otherwise.
-     */
-    public static boolean interact(int id, String action, int identifier) {
-        final Rs2ItemModel rs2Item = get(id);
-        if (rs2Item == null) return false;
-        invokeMenu(rs2Item, action, identifier);
-        return true;
     }
 
     /**
@@ -1888,17 +1894,16 @@ public class Rs2Inventory {
      *
      * @param rs2Item            The current item to interact with.
      * @param action             The action to be used on the item.
-     * @param providedIdentifier The identifier to use; if -1, compute using the old logic.
      */
-    private static void invokeMenu(Rs2ItemModel rs2Item, String action, int providedIdentifier) {
+    private static void invokeMenu(Rs2ItemModel rs2Item, String action) {
         if (rs2Item == null) return;
-
         Rs2Tab.switchToInventoryTab();
         Microbot.status = action + " " + rs2Item.getName();
 
         int param0;
         int param1;
         int identifier = -1;
+        String target = rs2Item.getName();
         MenuAction menuAction = MenuAction.CC_OP;
         Widget[] inventoryWidgets;
         param0 = rs2Item.getSlot();
@@ -1939,9 +1944,25 @@ public class Rs2Inventory {
                     itemWidget.getActions() :
                     rs2Item.getInventoryActions();
 
-            identifier = providedIdentifier == -1 ? indexOfIgnoreCase(stripColTags(actions), action) + 1 : providedIdentifier;
+            int simpleIndex = indexOfIgnoreCase(stripColTags(actions), action);
+            if (simpleIndex != -1) {
+                identifier = simpleIndex + 1;
+            } else {
+                // We could not find the action in the item widget's actions, so we try to find it in the sub-menu actions
+                Map.Entry<String, Integer> subActionMap = rs2Item.getIndexOfSubAction(action);
+                if (subActionMap != null) {
+                    // The main menu index depends on the inventory interface from which this item is interacted with
+                    int mainMenuIndex = java.util.Arrays.asList(actions).indexOf(subActionMap.getKey());
+                    identifier = NewMenuEntry.findIdentifier(subActionMap.getValue() + 1, mainMenuIndex + 1);
+                    target = "";
+                }
+            }
         }
 
+
+  /*      if (identifier > 5) {
+            menuAction = MenuAction.CC_OP_LOW_PRIORITY;
+        }*/
 
         if (isItemSelected()) {
             menuAction = MenuAction.WIDGET_TARGET_ON_WIDGET;
@@ -1951,7 +1972,16 @@ public class Rs2Inventory {
             menuAction = MenuAction.WIDGET_TARGET_ON_WIDGET;
         }
 
-        Microbot.doInvoke(new NewMenuEntry(action, param0, param1, menuAction.getId(), identifier, rs2Item.getId(), rs2Item.getName()), (itemBounds(rs2Item) == null) ? new Rectangle(1, 1) : itemBounds(rs2Item));
+        Microbot.doInvoke(new NewMenuEntry()
+                .option(action)
+                .param0(param0)
+                .param1(param1)
+                .opcode(menuAction.getId())
+                .identifier(identifier)
+                .itemId(rs2Item.getId())
+                .target(target)
+                ,
+                (itemBounds(rs2Item) == null) ? new Rectangle(1, 1) : itemBounds(rs2Item));
 
         if (action.equalsIgnoreCase("destroy")) {
             sleepUntil(() -> Rs2Widget.isWidgetVisible(584, 0));
@@ -1959,16 +1989,6 @@ public class Rs2Inventory {
         }
     }
 
-
-    /**
-     * Method executes menu actions
-     *
-     * @param rs2Item Current item to interact with
-     * @param action  Action used on the item
-     */
-    private static void invokeMenu(Rs2ItemModel rs2Item, String action) {
-        invokeMenu(rs2Item, action, -1);
-    }
 
     public static Widget getInventory() {
         final int BANK_PIN_INVENTORY_ITEM_CONTAINER = 17563648;

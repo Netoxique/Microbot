@@ -1,23 +1,25 @@
 package net.runelite.client.plugins.microbot.util.reflection;
 
 import lombok.SneakyThrows;
-import net.runelite.api.*;
+import net.runelite.api.ItemComposition;
+import net.runelite.api.MenuAction;
+import net.runelite.api.MenuEntry;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.util.keyboard.Rs2Keyboard;
 import net.runelite.client.plugins.microbot.util.math.Rs2Random;
-import net.runelite.client.plugins.microbot.util.npc.Rs2NpcModel;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.tree.*;
+
+import lombok.extern.slf4j.Slf4j;
 
 import java.awt.event.KeyEvent;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 public class Rs2Reflection {
     @SneakyThrows
     public static void invokeMenu(int param0, int param1, int opcode, int identifier, int itemId, String option, String target, int canvasX, int canvasY)
@@ -29,59 +31,27 @@ public class Rs2Reflection {
     @SneakyThrows
     public static void invokeMenu(int param0, int param1, int opcode, int identifier, int itemId, int worldViewId, String option, String target, int canvasX, int canvasY)
     {
+        // Cache-first path: when the on-disk cache resolves, MenuActionAsmResolver is never
+        // referenced, so the JVM has no cause to class-load it — and therefore no cause to
+        // link the ASM library. That's the point of P7-b: ASM becomes a first-launch-only
+        // runtime signature instead of a steady-state one.
         if (menuAction == null)
         {
-            final String MENU_ACTION_DESCRIPTOR_VANILLA = "(IIIIIILjava/lang/String;Ljava/lang/String;IIB)V";
-            final String MENU_ACTION_DESCRIPTOR_RUNELITE = "(IILnet/runelite/api/MenuAction;IILjava/lang/String;Ljava/lang/String;)V";
-
-            final Class<?> clientClazz = Microbot.getClient().getClass();
-            final ClassReader classReader = new ClassReader(clientClazz.getName());
-            final ClassNode classNode = new ClassNode(Opcodes.ASM9);
-            classReader.accept(classNode, ClassReader.SKIP_FRAMES);
-
-            final MethodNode targetMethodNodeContainingMenuActionInvocation = classNode.methods.stream()
-                    .filter(m -> m.access == Opcodes.ACC_PUBLIC
-                            && (m.name.equals("menuAction") && m.desc.equals(MENU_ACTION_DESCRIPTOR_RUNELITE)
-                            || m.name.equals("openWorldHopper") && m.desc.equals("()V")
-                            || m.name.equals("hopToWorld") && m.desc.equals("(Lnet/runelite/api/World;)V")))
-                    .findFirst()
-                    .orElse(null);
-
-            if (targetMethodNodeContainingMenuActionInvocation != null)
+            MenuActionAsmResolver.Resolution cached = MenuActionInfoCache.load();
+            if (cached != null)
             {
-                final InsnList instructions = targetMethodNodeContainingMenuActionInvocation.instructions;
-                for (AbstractInsnNode insnNode : instructions)
-                {
-                    if ((insnNode instanceof LdcInsnNode || (insnNode instanceof IntInsnNode)) && insnNode.getNext() instanceof MethodInsnNode)
-                    {
-                        if (insnNode instanceof LdcInsnNode)
-                        {
-                            menuActionGarbageValue = ((LdcInsnNode) insnNode).cst;
-                        }
-                        else if (insnNode instanceof IntInsnNode)
-                        {
-                            if (insnNode.getOpcode() == Opcodes.BIPUSH)
-                            {
-                                menuActionGarbageValue = ((byte) ((IntInsnNode) insnNode).operand);
-                            }
-                            else if (insnNode.getOpcode() == Opcodes.SIPUSH)
-                            {
-                                menuActionGarbageValue = ((short) ((IntInsnNode) insnNode).operand);
-                            }
-                        }
-
-                        final MethodInsnNode menuActionVanillaInsn = (MethodInsnNode) insnNode.getNext();
-                        if (!menuActionVanillaInsn.desc.equals(MENU_ACTION_DESCRIPTOR_VANILLA))
-                        {
-                            throw new RuntimeException("Menu action descriptor vanilla has changed from: " + MENU_ACTION_DESCRIPTOR_VANILLA + " to: " + menuActionVanillaInsn.desc);
-                        }
-                        menuAction = Arrays.stream(Class.forName(menuActionVanillaInsn.owner).getDeclaredMethods())
-                                .filter(m -> m.getName().equals(menuActionVanillaInsn.name))
-                                .findFirst()
-                                .orElse(null);
-                        break;
-                    }
-                }
+                menuAction = cached.method;
+                menuActionGarbageValue = cached.garbageValue;
+            }
+        }
+        if (menuAction == null)
+        {
+            MenuActionAsmResolver.Resolution resolution = MenuActionAsmResolver.resolve(Microbot.getClient().getClass());
+            if (resolution != null)
+            {
+                menuAction = resolution.method;
+                menuActionGarbageValue = resolution.garbageValue;
+                MenuActionInfoCache.store(resolution);
             }
         }
 
@@ -103,63 +73,135 @@ public class Rs2Reflection {
         System.out.println("[INVOKE] => param0: " + param0 + " param1: " + param1 + " opcode: " + opcode + " id: " + identifier + " itemid: " + itemId);
     }
 
-    /**
-     * Gets the animation of an NPC by using reflection.
-     * @param npc
-     * @return
-     */
-    @SneakyThrows
-    @Deprecated(since="1.9.8.7 - Runelite exposes all animations", forRemoval=true)
-    public static int getAnimation(NPC npc) {
-        if (npc == null) {
-            return -1;
-        }
-        return npc.getAnimation();
-    }
+    private static volatile Field cachedOuterField;
+    private static volatile Field cachedListField;
+    private static volatile Field cachedStringField;
+    private static volatile Class<?> cachedGroundItemClass;
 
-    /**
-     * Gets the head icons of an NPC by using reflection.
-     * @param npc
-     * @return
-     */
-    @SneakyThrows
-    @Deprecated(since="1.9.8.7 - Runelite exposes overheads on npcs", forRemoval = true)
-    public static HeadIcon getHeadIcon(Rs2NpcModel npc) {
-        if (npc == null) {
-            return null;
-        }
-
-        if (npc.getOverheadSpriteIds() == null) {
-            Microbot.log("Failed to find the correct overhead prayer.");
-            return null;
-        }
-
-        for (int i = 0; i < npc.getOverheadSpriteIds().length; i++) {
-            int overheadSpriteId = npc.getOverheadSpriteIds()[i];
-
-            if (overheadSpriteId == -1) continue;
-
-            return HeadIcon.values()[overheadSpriteId];
-        }
-
-        Microbot.log("Found overheadSpriteIds: " + Arrays.toString(npc.getOverheadSpriteIds()) + " but failed to find valid overhead prayer.");
-
-        return null;
-    }
-
-    @SneakyThrows
     public static String[] getGroundItemActions(ItemComposition item) {
-        List<Field> fields = Arrays.stream(item.getClass().getFields()).filter(x -> x.getType().isArray()).collect(Collectors.toList());
-        for (Field field : fields) {
-            if (field.getType().getComponentType().getName().equals("java.lang.String")) {
-                String[] actions = (String[]) field.get(item);
-                if (Arrays.stream(actions).anyMatch(x -> x != null && x.equalsIgnoreCase("take"))) {
-                    field.setAccessible(true);
-                    return actions;
+        return getGroundItemActionsFromObject(item);
+    }
+
+    @SneakyThrows
+    static String[] getGroundItemActionsFromObject(Object item) {
+        if (item == null) return new String[]{};
+        Class<?> itemClass = item.getClass();
+        if (cachedGroundItemClass != itemClass) {
+            resetGroundItemActionCache();
+            cachedGroundItemClass = itemClass;
+        }
+
+        if (cachedOuterField != null && cachedListField != null) {
+            try {
+                return extractWithCache(item);
+            } catch (Exception e) {
+                log.warn("Ground item action cache invalidated, re-discovering");
+                resetGroundItemActionCache();
+            }
+        }
+
+        for (Class<?> clazz = item.getClass(); clazz != null && clazz != Object.class; clazz = clazz.getSuperclass()) {
+            for (Field outerField : clazz.getDeclaredFields()) {
+                if (Modifier.isStatic(outerField.getModifiers()) || outerField.isSynthetic()) continue;
+
+                Class<?> type = outerField.getType();
+                if (type.isPrimitive() || type == String.class || type.isArray()
+                        || type.getName().startsWith("java.") || type.getName().startsWith("net.runelite.")) continue;
+
+                outerField.setAccessible(true);
+                Object outerValue = outerField.get(item);
+                outerField.setAccessible(false);
+                if (outerValue == null) continue;
+
+                for (Field listField : outerValue.getClass().getDeclaredFields()) {
+                    if (Modifier.isStatic(listField.getModifiers()) || listField.isSynthetic()) continue;
+                    if (!List.class.isAssignableFrom(listField.getType())) continue;
+
+                    listField.setAccessible(true);
+                    Object listObj = listField.get(outerValue);
+                    listField.setAccessible(false);
+                    if (!(listObj instanceof List)) continue;
+
+                    List<?> list = (List<?>) listObj;
+                    if (list.isEmpty()) continue;
+
+                    Object first = null;
+                    for (Object el : list) {
+                        if (el != null) { first = el; break; }
+                    }
+                    if (first == null) continue;
+
+                    if (first instanceof String) {
+                        cachedOuterField = outerField;
+                        cachedListField = listField;
+                        cachedStringField = null;
+                        return toStringArray(list);
+                    }
+
+                    Field stringField = null;
+                    for (Field f : first.getClass().getDeclaredFields()) {
+                        if (!Modifier.isStatic(f.getModifiers()) && !f.isSynthetic() && f.getType() == String.class) {
+                            stringField = f;
+                            break;
+                        }
+                    }
+                    if (stringField == null) continue;
+
+                    cachedOuterField = outerField;
+                    cachedListField = listField;
+                    cachedStringField = stringField;
+                    return extractFromBeans(list, stringField);
                 }
             }
         }
+
         return new String[]{};
+    }
+
+    static void resetGroundItemActionCache() {
+        cachedGroundItemClass = null;
+        cachedOuterField = null;
+        cachedListField = null;
+        cachedStringField = null;
+    }
+
+    private static String[] extractWithCache(Object item) throws Exception {
+        cachedOuterField.setAccessible(true);
+        Object outer = cachedOuterField.get(item);
+        cachedOuterField.setAccessible(false);
+        if (outer == null) return new String[]{};
+
+        cachedListField.setAccessible(true);
+        Object listObj = cachedListField.get(outer);
+        cachedListField.setAccessible(false);
+        if (!(listObj instanceof List)) return new String[]{};
+
+        List<?> list = (List<?>) listObj;
+        if (cachedStringField == null) return toStringArray(list);
+        return extractFromBeans(list, cachedStringField);
+    }
+
+    private static String[] toStringArray(List<?> list) {
+        String[] result = new String[list.size()];
+        for (int i = 0; i < list.size(); i++) {
+            Object el = list.get(i);
+            result[i] = el instanceof String ? (String) el : null;
+        }
+        return result;
+    }
+
+    private static String[] extractFromBeans(List<?> list, Field stringField) throws Exception {
+        String[] result = new String[list.size()];
+        stringField.setAccessible(true);
+        for (int i = 0; i < list.size(); i++) {
+            Object bean = list.get(i);
+            if (bean != null) {
+                Object val = stringField.get(bean);
+                result[i] = val instanceof String ? (String) val : null;
+            }
+        }
+        stringField.setAccessible(false);
+        return result;
     }
 
     @SneakyThrows
@@ -172,4 +214,3 @@ public class Rs2Reflection {
                 .invoke(menuEntry, itemId); //use the setItemId method through reflection
     }
 }
-

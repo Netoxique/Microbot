@@ -20,16 +20,89 @@ public interface MicrobotConfig extends Config
 	)
 	String generalSection = "generalSection";
 
+	String keyDisableLevelUpInterface = "disableLevelUpInterface";
+	@ConfigItem(
+		keyName = keyDisableLevelUpInterface,
+		name = "Disable level-up interface",
+		description = "Automatically close the level-up interface when it appears",
+		position = 0,
+		section = generalSection
+	)
+	default boolean disableLevelUpInterface()
+	{
+		return true;
+	}
+
+	String keyDisableWorldSwitcherConfirmation = "disableWorldSwitcherConfirmation";
+	@ConfigItem(
+		keyName = keyDisableWorldSwitcherConfirmation,
+		name = "Disable world switcher confirmation",
+		description = "Automatically disable the world switcher confirmation prompt",
+		position = 1,
+		section = generalSection
+	)
+	default boolean disableWorldSwitcherConfirmation()
+	{
+		return true;
+	}
+
+	String keyHideRoofs = "hideRoofs";
+	@ConfigItem(
+		keyName = keyHideRoofs,
+		name = "Hide roofs",
+		description = "Automatically enable the hide roofs display setting",
+		position = 2,
+		section = generalSection
+	)
+	default boolean hideRoofs()
+	{
+		return true;
+	}
+
+	@ConfigSection(
+		name = "Movement",
+		description = "Movement and stamina settings. Plugins may override these, but any changes will be reflected here.",
+		position = 1,
+		closedByDefault = true
+	)
+	String movementSection = "movementSection";
+
+	String keyEnableAutoRunOn = "enableAutoRunOn";
+	@ConfigItem(
+		keyName = keyEnableAutoRunOn,
+		name = "Enable auto run",
+		description = "Automatically toggle run on when you have run energy",
+		position = 0,
+		section = movementSection
+	)
+	default boolean enableAutoRunOn()
+	{
+		return true;
+	}
+
+	String keyUseStaminaPotsIfNeeded = "useStaminaPotsIfNeeded";
+	@ConfigItem(
+		keyName = keyUseStaminaPotsIfNeeded,
+		name = "Use stamina potions",
+		description = "Automatically use stamina potions from inventory when run energy is low and the player is moving",
+		position = 1,
+		section = movementSection
+	)
+	default boolean useStaminaPotsIfNeeded()
+	{
+		return true;
+	}
+
 	@ConfigSection(
 		name = "Logging",
 		description = "Game chat logging configuration",
-		position = 1
+		position = 2
 	)
 	String loggingSection = "loggingSection";
 	@ConfigSection(
 			name = "Caching",
 			description = "Caching ingame data",
-			position = 2
+			position = 3
 	)
 	String cacheSection = "cacheSection";
 
@@ -98,18 +171,6 @@ public interface MicrobotConfig extends Config
 		return false;
 	}
 
-	String keyEnableCache = "enableRs2Cache";
-	@ConfigItem(
-			keyName = keyEnableCache,
-			name = "Enable Microbot Cache",
-			description = "This will cache ingame entities (npcs, objects,...) to improve performance",
-			position = 0,
-			section = cacheSection
-	)
-	default boolean isRs2CacheEnabled() {
-		return false;
-	}
-
 	@AllArgsConstructor
 	enum GameChatLogLevel {
 		ERROR("Error", Level.ERROR),
@@ -157,5 +218,16 @@ public interface MicrobotConfig extends Config
 		return false;
 	}
 
-
+	String keyDisableTelemetry = "disableTelemetry";
+	@ConfigItem(
+		keyName = keyDisableTelemetry,
+		name = "Disable telemetry",
+		description = "Stop outbound calls to microbot.cloud (update check, random-fact splash, session ping). " +
+				"Equivalent to launching with -Dmicrobot.disableTelemetry=true.",
+		position = 6,
+		section = generalSection
+	)
+	default boolean disableTelemetry() {
+		return false;
+	}
 }

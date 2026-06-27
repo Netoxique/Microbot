@@ -39,7 +39,6 @@ import net.runelite.client.plugins.microbot.questhelper.questinfo.QuestHelperQue
 import net.runelite.client.plugins.microbot.questhelper.requirements.item.ItemRequirement;
 import net.runelite.client.plugins.microbot.questhelper.runeliteobjects.Cheerer;
 import net.runelite.client.plugins.microbot.questhelper.runeliteobjects.GlobalFakeObjects;
-import net.runelite.client.plugins.microbot.questhelper.runeliteobjects.RuneliteConfigSetter;
 import net.runelite.client.plugins.microbot.questhelper.runeliteobjects.extendedruneliteobjects.RuneliteObjectManager;
 import net.runelite.client.plugins.microbot.questhelper.statemanagement.PlayerStateManager;
 import net.runelite.client.plugins.microbot.questhelper.tools.Icon;
@@ -47,11 +46,9 @@ import net.runelite.client.plugins.microbot.questhelper.util.worldmap.WorldMapAr
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
-import net.runelite.api.annotations.Varbit;
 import net.runelite.api.events.*;
 import net.runelite.api.gameval.InventoryID;
-import net.runelite.api.gameval.ItemID;
-import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.client.RuneLite;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatMessageManager;
@@ -70,7 +67,6 @@ import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.components.colorpicker.ColorPickerManager;
 import net.runelite.client.util.Text;
-import org.apache.commons.lang3.ArrayUtils;
 
 import javax.annotation.Nullable;
 import javax.inject.Inject;
@@ -174,6 +170,9 @@ public class QuestHelperPlugin extends Plugin
 
 	private final Collection<String> configEvents = Arrays.asList("orderListBy", "filterListBy", "questDifficulty", "showCompletedQuests");
 	private final Collection<String> configItemEvents = Arrays.asList("highlightNeededQuestItems", "highlightNeededMiniquestItems", "highlightNeededAchievementDiaryItems");
+	public boolean fullCrate;
+	@Inject
+	QuestScript questScript;
 
 	@Provides
 	QuestHelperConfig getConfig(ConfigManager configManager)
@@ -229,6 +228,7 @@ public class QuestHelperPlugin extends Plugin
 				GlobalFakeObjects.createNpcs(client, runeliteObjectManager, configManager, config);
 			}
 		});
+		questScript.run(config, this);
 	}
 
 	@Override
@@ -348,7 +348,7 @@ public class QuestHelperPlugin extends Plugin
 		}
 
 		if (client.getWorldType().contains(WorldType.QUEST_SPEEDRUNNING)
-			&& event.getVarpId() == VarPlayer.IN_RAID_PARTY
+			&& event.getVarpId() == VarPlayerID.RAIDS_PARTY_GROUPHOLDER
 			&& event.getValue() == 0
 			&& client.getGameState() == GameState.LOGGED_IN)
 		{
@@ -374,20 +374,6 @@ public class QuestHelperPlugin extends Plugin
 		if (!event.getGroup().equals(QuestHelperConfig.QUEST_HELPER_GROUP))
 		{
 			return;
-		}
-
-		if (event.getKey().equals("showRuneliteObjects") && client.getGameState() == GameState.LOGGED_IN)
-		{
-			clientThread.invokeLater(() -> {
-				if (config.showRuneliteObjects())
-				{
-					GlobalFakeObjects.createNpcs(client, runeliteObjectManager, configManager, config);
-				}
-				else
-				{
-					GlobalFakeObjects.disableNpcs(runeliteObjectManager);
-				}
-			});
 		}
 
 		if (configEvents.contains(event.getKey()) || event.getKey().contains("skillfilter"))
@@ -453,11 +439,6 @@ public class QuestHelperPlugin extends Plugin
 				questOverlayManager.addDebugOverlay();
 			}
 		}
-		else if (developerMode && commandExecuted.getCommand().equals("reset-cooks-helper"))
-		{
-			String step = (String) (Arrays.stream(commandExecuted.getArguments()).toArray()[0]);
-			new RuneliteConfigSetter(configManager, QuestHelperQuest.COOKS_HELPER.getPlayerQuests().getConfigValue(), step).setConfigValue();
-		}
 		else if (developerMode && commandExecuted.getCommand().equals("qh-inv"))
 		{
 			ItemContainer inventory = client.getItemContainer(InventoryID.INV);
@@ -492,6 +473,18 @@ public class QuestHelperPlugin extends Plugin
 	public @Nullable QuestHelper getSelectedQuest()
 	{
 		return questManager.getSelectedQuest();
+	}
+
+	public boolean startQuestHelper(String questName)
+	{
+		QuestHelper questHelper = QuestHelperQuest.getByName(questName);
+		if (questHelper == null)
+		{
+			return false;
+		}
+
+		questManager.startUpQuest(questHelper, true);
+		return true;
 	}
 
 	public Map<String, QuestHelper> getBackgroundHelpers()
@@ -537,6 +530,9 @@ public class QuestHelperPlugin extends Plugin
 	@Subscribe
 	public void onChatMessage(ChatMessage chatMessage)
 	{
+		if (chatMessage.getMessage().equals("The crate is full of bananas.")) {
+			fullCrate = true;
+		}
 		if (config.showFan() && chatMessage.getType() == ChatMessageType.GAMEMESSAGE)
 		{
 			if (chatMessage.getMessage().contains("Congratulations! Quest complete!") ||
@@ -609,5 +605,37 @@ public class QuestHelperPlugin extends Plugin
 				.filter(s -> !s.isEmpty())
 				.map(Integer::parseInt)
 				.collect(Collectors.toList());
+	}
+
+	public void resetSidebarOrderForSection(QuestHelper currentQuest, List<Integer> sectionIds)
+	{
+		if (currentQuest == null || currentQuest.getQuest() == null || sectionIds == null || sectionIds.isEmpty())
+		{
+			return;
+		}
+
+		List<Integer> currentOrder = loadSidebarOrder(currentQuest);
+		if (currentOrder == null || currentOrder.isEmpty())
+		{
+			return;
+		}
+
+		// Remove all IDs belonging to this section from the order
+		List<Integer> updatedOrder = currentOrder.stream()
+			.filter(id -> !sectionIds.contains(id))
+			.collect(Collectors.toList());
+
+		// If the order is now empty, remove the config entry (set to null) to use default order
+		// Otherwise save the updated order
+		if (updatedOrder.isEmpty())
+		{
+			configManager.unsetRSProfileConfiguration(QuestHelperConfig.QUEST_HELPER_GROUP,
+				QuestHelperConfig.QUEST_HELPER_SIDEBAR_ORDER_KEY_START + currentQuest.getQuest().name());
+		}
+		else
+		{
+			saveSidebarOrder(currentQuest, updatedOrder);
+		}
+		questManager.startUpQuest(currentQuest, true);
 	}
 }

@@ -9,6 +9,7 @@ import net.runelite.client.plugins.microbot.util.widget.Rs2Widget;
 
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -16,6 +17,7 @@ import java.util.stream.Collectors;
 import static net.runelite.client.plugins.microbot.util.Global.sleepUntilTrue;
 
 public class Rs2Dialogue {
+    private static final String CLICK_HERE_TO_CONTINUE = "Click here to continue";
 
     /**
      * Checks if the player is currently in a dialogue state.
@@ -25,7 +27,7 @@ public class Rs2Dialogue {
      * @return true if any dialogue-related widget is visible and the scroll bar is not visible, false otherwise.
      */
     public static boolean isInDialogue() {
-        return !Rs2Widget.isWidgetVisible(162, 558) && (hasContinue() || hasSelectAnOption());
+        return !Rs2Widget.isWidgetVisible(162, 559) && (hasContinue() || hasSelectAnOption());
     }
 
     /**
@@ -44,7 +46,7 @@ public class Rs2Dialogue {
      */
     public static boolean hasContinue() {
         return hasNPCContinue() || hasPlayerContinue() || hasDeathContinue() ||
-                hasSpriteContinue() || hasTutContinue() || hasItemContinue() ||
+                hasSpriteContinue() || hasTutContinue() ||
                 hasBarrowsContinue() || hasSpellFilterContinue();
     }
 
@@ -84,7 +86,7 @@ public class Rs2Dialogue {
      *
      * @return true if the "Continue" option is visible in either sprite-based dialogue, false otherwise.
      */
-    
+
     private static boolean hasSpriteContinue() {
         return Rs2Widget.isWidgetVisible(InterfaceID.DIALOG_SPRITE, 0) || Rs2Widget.isWidgetVisible(InterfaceID.DIALOG_SPRITE, 3) || Rs2Widget.isWidgetVisible(InterfaceID.DIALOG_DOUBLE_SPRITE, 4);
     }
@@ -100,16 +102,6 @@ public class Rs2Dialogue {
     }
 
     /**
-     * Checks if there is a "click here to continue" option for an item
-     * This includes items given when doing quests for example
-     *
-     * @return true if the "Continue" option is visible in the item dialogue, false otherwise.
-     */
-    private static boolean hasItemContinue() {
-        return Rs2Widget.isWidgetVisible(InterfaceID.DIALOG_SPRITE, 0);
-    }
-
-    /**
      * Checks if there is a "click here to continue" option for the Barrows sarcophagus.
      *
      * @return true if the "Continue" option is visible in the item dialogue, false otherwise.
@@ -121,13 +113,20 @@ public class Rs2Dialogue {
     /**
      * Checks if there is a "Continue" option in the spell filter dialogue.
      *
-     * <p>This method verifies the visibility of the widget associated with the spell filter continue option.
-     * It checks the widget with interface ID 162 and child ID 43 to determine if the "Continue" option is present.</p>
+     * <p>This method verifies the chatbox widget used by spell filter continue prompts.
+     * It checks the widget text because the same chatbox child is also used for text inputs.</p>
      *
      * @return true if the spell filter continue option is visible, false otherwise.
      */
     private static boolean hasSpellFilterContinue() {
-        return Rs2Widget.isWidgetVisible(162, 43);
+        return Microbot.getClientThread().runOnClientThreadOptional(() -> {
+            Widget widget = Microbot.getClient().getWidget(162, 44);
+            return widget != null && !widget.isHidden() && isContinuePromptText(widget.getText());
+        }).orElse(false);
+    }
+
+    static boolean isContinuePromptText(String text) {
+        return text != null && Rs2UiHelper.stripTagsToSpace(text).equalsIgnoreCase(CLICK_HERE_TO_CONTINUE);
     }
 
     /**
@@ -138,10 +137,10 @@ public class Rs2Dialogue {
     public static boolean hasSelectAnOption() {
         boolean isWidgetVisible = Rs2Widget.isWidgetVisible(InterfaceID.DIALOG_OPTION, 1);
         if (!isWidgetVisible) return false;
-        
+
         Widget widget = Rs2Widget.getWidget(InterfaceID.DIALOG_OPTION, 1);
         if (widget == null) return false;
-        
+
         return widget.getDynamicChildren() != null;
     }
 
@@ -196,7 +195,7 @@ public class Rs2Dialogue {
         Widget dialogueOption = Rs2Widget.getWidget(InterfaceID.DIALOG_OPTION, 1);
         if (dialogueOption == null) return false;
         Widget[] dynamicWidgetOptions = dialogueOption.getDynamicChildren();
-        if (dynamicWidgetOptions[0] == null) return false;
+        if (dynamicWidgetOptions == null || dynamicWidgetOptions.length == 0 || dynamicWidgetOptions[0] == null) return false;
 
         if (exact) {
             return dynamicWidgetOptions[0].getText().equalsIgnoreCase(text);
@@ -249,16 +248,13 @@ public class Rs2Dialogue {
      * @return the widget representing the matching dialogue option, or null if no match is found.
      */
     public static Widget getDialogueOption(String text, boolean exact) {
-        if (!hasSelectAnOption() || getDialogueOptions().isEmpty()) return null;
+        List<Widget> options = getDialogueOptions();
+        if (!hasSelectAnOption() || options.isEmpty()) return null;
 
-        Widget dialogueOption;
-
-        dialogueOption = getDialogueOptions().stream()
+        return options.stream()
                 .filter(dialop -> exact ? dialop.getText().equalsIgnoreCase(text) : dialop.getText().toLowerCase().contains(text.toLowerCase()))
                 .findFirst()
                 .orElse(null);
-
-        return dialogueOption;
     }
 
     /**
@@ -281,13 +277,7 @@ public class Rs2Dialogue {
     public static boolean hasDialogueOption(String text, boolean exact) {
         if (!hasSelectAnOption()) return false;
         List<Widget> dialogueOptions = Rs2Dialogue.getDialogueOptions();
-        List<String> dialogueText = dialogueOptions.stream().map(Widget::getText).collect(Collectors.toList());
-
-        if (exact) {
-            return dialogueText.stream().anyMatch(dialtxt -> dialtxt.equalsIgnoreCase(text));
-        } else {
-            return dialogueText.stream().anyMatch(dialtxt -> dialtxt.toLowerCase().contains(text.toLowerCase()));
-        }
+        return dialogueOptions.stream().anyMatch(w -> exact ? w.getText().equalsIgnoreCase(text) : w.getText().toLowerCase().contains(text.toLowerCase()));
     }
 
     /**
@@ -338,6 +328,41 @@ public class Rs2Dialogue {
     }
 
     /**
+     * Attempts to click on a dialogue option based on the specified text(s). The method
+     * performs a partial matching depending on the provided parameter and will return
+     * whether the operation was successful.
+     *
+     * @param texts varargs parameter representing the*/
+    public static boolean clickOption(String... texts){
+        return clickOption(false, texts);
+    }
+
+    /**
+     * Attempts to click on a dialogue option based on the specified text(s). The method can
+     * perform an exact or partial matching depending on the provided parameter and will return
+     * whether the operation was successful.
+     *
+     * @param exact specifies whether the matching should be exact (true) or partial (false).
+     * @param texts varargs parameter representing the*/
+    public static boolean clickOption(boolean exact, String... texts){
+        if (!hasSelectAnOption()) return false;
+        List<Widget> options = getDialogueOptions();
+        if(options.isEmpty()) return false;
+
+        int matchIndex = -1;
+        for (int i = 0; i < options.size(); i++) {
+            Widget dialop = options.get(i);
+            boolean hit = exact
+                    ? Arrays.stream(texts).anyMatch(t -> dialop.getText().equalsIgnoreCase(t))
+                    : Arrays.stream(texts).anyMatch(t -> dialop.getText().toLowerCase().contains(t.toLowerCase()));
+            if (hit) { matchIndex = i; break; }
+        }
+        if (matchIndex < 0) return false;
+
+        return keyPressForDialogueOption(matchIndex + 1);
+    }
+
+    /**
      * Attempts to click on a dialogue option widget with the specified text.
      *
      * <p>This method searches for a widget that contains the specified option text within the dialogue.
@@ -365,10 +390,20 @@ public class Rs2Dialogue {
     public static boolean clickOption(String text, boolean exact) {
         if (!hasSelectAnOption()) return false;
 
-        Widget dialogueOption = getDialogueOption(text, exact);
-        if (dialogueOption == null) return false;
+        List<Widget> options = getDialogueOptions();
+        if (options.isEmpty()) return false;
 
-        return Rs2Widget.clickWidget(dialogueOption);
+        int matchIndex = -1;
+        for (int i = 0; i < options.size(); i++) {
+            Widget w = options.get(i);
+            boolean hit = exact
+                    ? w.getText().equalsIgnoreCase(text)
+                    : w.getText().toLowerCase().contains(text.toLowerCase());
+            if (hit) { matchIndex = i; break; }
+        }
+        if (matchIndex < 0) return false;
+
+        return keyPressForDialogueOption(matchIndex + 1);
     }
 
     /**
@@ -449,7 +484,7 @@ public class Rs2Dialogue {
     public static boolean sleepUntilHasQuestion(String text) {
         return sleepUntilHasQuestion(text, false);
     }
-    
+
     /**
      * Checks if the combination dialogue widget is currently visible.
      *
@@ -473,7 +508,7 @@ public class Rs2Dialogue {
 
         List<Widget> options = new ArrayList<>();
         if (Rs2Widget.isWidgetVisible(270, 13)) {
-            for (Widget widget : Rs2Widget.getWidget(270, 13).getStaticChildren()) {
+            for (Widget widget : Rs2Widget.getWidget(270, 14).getStaticChildren()) {
                 if (widget != null && widget.getActions() != null && widget.getActions().length > 0) {
                     options.add(widget);
                 }
@@ -565,9 +600,10 @@ public class Rs2Dialogue {
      * @return the widget matching the specified text, or null if no match is found.
      */
     public static Widget getCombinationOption(String text, boolean exact) {
-        if (!hasCombinationDialogue() || getCombinationOptions().isEmpty()) return null;
+        List<Widget> options = getCombinationOptions();
+        if (!hasCombinationDialogue() || options.isEmpty()) return null;
 
-        return getCombinationOptions().stream()
+        return options.stream()
                 .filter(widget -> {
                     String widgetName = Rs2UiHelper.stripColTags(widget.getName());
                     return exact ? widgetName.equalsIgnoreCase(text) : widgetName.toLowerCase().contains(text.toLowerCase());
@@ -597,11 +633,11 @@ public class Rs2Dialogue {
         if (!hasCombinationDialogue()) return false;
 
         Widget option = getCombinationOption(text, exact);
-        
+
         if (option == null) return false;
-        
+
         return Rs2Widget.clickWidget(option);
-        
+
     }
 
     /**
@@ -627,7 +663,7 @@ public class Rs2Dialogue {
      * Pauses the current thread until a specific combination dialogue option becomes available.
      *
      * <p>This method continuously checks for a combination dialogue option that matches the specified
-     * text. If an exact match is required, it will search for an option that exactly matches the text; 
+     * text. If an exact match is required, it will search for an option that exactly matches the text;
      * otherwise, it will look for an option containing the text.
      *
      * @param text  the text to search for within the combination dialogue options.
@@ -649,7 +685,7 @@ public class Rs2Dialogue {
     public static boolean sleepUntilHasCombinationOption(String text) {
         return sleepUntilHasCombinationOption(text, false);
     }
-    
+
     /**
      * Determines whether the game is currently in a cutscene.
      * <p>
@@ -677,6 +713,26 @@ public class Rs2Dialogue {
             }
         }
         return false;
+    }
+
+    /**
+     * Detects a quest-start prompt (e.g. "Would you like to start the Cook's Assistant quest?")
+     * and clicks the "Yes" option. Matches case-insensitively on prefix + suffix + keyword
+     * so it catches the OSRS convention across quests without picking up unrelated prompts
+     * like "Would you like to start a fire?".
+     *
+     * @return true if a quest-start prompt was detected and Yes was clicked
+     */
+    public static boolean acceptQuestStartDialogue() {
+        String question = getQuestion();
+        if (question == null) return false;
+
+        String q = question.toLowerCase().trim();
+        if (!q.startsWith("would you like to start")) return false;
+        if (!q.contains("quest")) return false;
+        if (!q.endsWith("?")) return false;
+
+        return clickOption("Yes", false);
     }
 
 	/**
