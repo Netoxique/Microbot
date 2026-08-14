@@ -5,6 +5,8 @@ import net.runelite.api.TileObject;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.plugins.microbot.shortestpath.Transport;
 import net.runelite.client.plugins.microbot.shortestpath.TransportType;
+import net.runelite.client.plugins.microbot.shortestpath.pathfinder.live.LiveCollisionOverlay;
+import net.runelite.client.plugins.microbot.shortestpath.pathfinder.live.LiveEdgeSource;
 import net.runelite.client.plugins.microbot.shortestpath.WorldPointUtil;
 import net.runelite.client.plugins.microbot.util.coords.Rs2WorldPoint;
 import net.runelite.client.plugins.microbot.util.gameobject.Rs2GameObject;
@@ -19,15 +21,50 @@ public class CollisionMap {
 
     private final SplitFlagMap collisionData;
 
+    /**
+     * Shared live-collision overlay. When enabled and covering {@code (x, y, z)}, its edges win over the
+     * static map; otherwise every read falls through to {@code collisionData}. Defaults to a disabled
+     * holder, so a {@link #CollisionMap(SplitFlagMap)} behaves exactly as the static-only map — the whole
+     * existing test suite is unaffected.
+     */
+    private final LiveCollisionOverlay overlay;
+
+    /**
+     * Live view pinned for the duration of one search, so a mid-search merge on the client thread cannot
+     * mix two states into a single path. Refreshed via {@link #beginSearch()}.
+     */
+    private LiveEdgeSource pinnedLive;
+
     public byte[] getPlanes() {
         return collisionData.getRegionMapPlaneCounts();
     }
 
     public CollisionMap(SplitFlagMap collisionData) {
+        this(collisionData, new LiveCollisionOverlay());
+    }
+
+    public CollisionMap(SplitFlagMap collisionData, LiveCollisionOverlay overlay) {
         this.collisionData = collisionData;
+        this.overlay = overlay;
+    }
+
+    /**
+     * Pins the overlay's current snapshot for the upcoming search. Called once at the start of a
+     * pathfind so every {@link #get} within that search sees one immutable view; between searches the
+     * client thread is free to swap in a newer snapshot.
+     */
+    public void beginSearch() {
+        pinnedLive = overlay.current();
     }
 
     private boolean get(int x, int y, int z, int flag) {
+        final LiveEdgeSource live = pinnedLive;
+        if (live != null) {
+            final Boolean liveEdge = live.edge(x, y, z, flag);
+            if (liveEdge != null) {
+                return liveEdge;
+            }
+        }
         return collisionData.get(x, y, z, flag);
     }
 
@@ -65,6 +102,19 @@ public class CollisionMap {
 
     public boolean isBlocked(int x, int y, int z) {
         return !n(x, y, z) && !s(x, y, z) && !e(x, y, z) && !w(x, y, z);
+    }
+
+    /**
+     * Whether collision data exists for the region containing {@code (x, y)}.
+     *
+     * <p>Required to interpret {@link #isBlocked}: an <em>unmapped</em> region reads as fully
+     * blocked, because {@link SplitFlagMap#get} returns {@code false} for one and {@code isBlocked}
+     * negates all four directions. Gate on this before treating blocked as unreachable.
+     *
+     * @see SplitFlagMap#hasRegion(int, int)
+     */
+    public boolean hasRegion(int x, int y) {
+        return collisionData.hasRegion(x, y);
     }
 
     /**
@@ -160,6 +210,10 @@ public class CollisionMap {
     private volatile long cachedRegionIdTime = 0;
     private static final long REGION_CACHE_MS = 5000;
     private static final int TOA_PUZZLE_REGION = 14162;
+    // Extra g-cost (in tile-distance units) for stepping onto a tile next to an aggressive-NPC
+    // hazard. High enough to strongly prefer a detour, but a penalty (not a block) so a true
+    // chokepoint is still traversable.
+    private static final int DANGEROUS_TILE_PENALTY = 100;
 
     private int getCachedRegionId() {
         long now = System.currentTimeMillis();
@@ -261,7 +315,18 @@ public class CollisionMap {
             }
 
             if (traversable[i]) {
-                neighbors.add(new Node(neighborPacked, node));
+                if (config.isAvoidDangerousNpcs()
+                        && config.isDangerousAdjacentTile(neighborPacked)
+                        && !targets.contains(neighborPacked)) {
+                    // Penalty (not a skip): the path keeps >=2 tiles from the hazard when a
+                    // reasonable detour exists, but a chokepoint still routes through.
+                    int penalizedCost = node.cost
+                            + WorldPointUtil.distanceBetween(node.packedPosition, neighborPacked)
+                            + DANGEROUS_TILE_PENALTY;
+                    neighbors.add(new Node(neighborPacked, node, penalizedCost));
+                } else {
+                    neighbors.add(new Node(neighborPacked, node));
+                }
             } else if (Math.abs(d.x + d.y) == 1 && isBlocked(x + d.x, y + d.y, z)) {
                 // The transport starts from a blocked adjacent tile, e.g. fairy ring
                 // Only checks non-teleport transports (includes portals and levers, but not items and spells)
@@ -354,7 +419,16 @@ public class CollisionMap {
             }
 
             if (traversable[i]) {
-                neighbors.add(new Node(prevPacked, node));
+                if (config.isAvoidDangerousNpcs() && config.isDangerousAdjacentTile(prevPacked)) {
+                    // Mirror the forward danger penalty so the bidirectional search costs the same
+                    // edge consistently from both ends and can't pick a hazard-adjacent meeting.
+                    int penalizedCost = node.cost
+                            + WorldPointUtil.distanceBetween(node.packedPosition, prevPacked)
+                            + DANGEROUS_TILE_PENALTY;
+                    neighbors.add(new Node(prevPacked, node, penalizedCost));
+                } else {
+                    neighbors.add(new Node(prevPacked, node));
+                }
             } else if (Math.abs(d.x + d.y) == 1
                     && isBlocked(WorldPointUtil.unpackWorldX(prevPacked), WorldPointUtil.unpackWorldY(prevPacked), z)) {
                 int wx = WorldPointUtil.unpackWorldX(prevPacked);
